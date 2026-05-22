@@ -1,76 +1,58 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// ACADEMY ENGINE  —  Vercel Serverless API Route  v1.0.0
-// File    : api/academy-engine/index.ts
+// ACADEMY ENGINE  —  Vercel Serverless Function  v1.0.0
+// File    : api/academy-engine.js
 // Route   : POST /api/academy-engine
 // Contract: { action, payload } → { ok, action, data, error, meta }
 // Provider: OpenRouter  https://openrouter.ai/api/v1
 // ──────────────────────────────────────────────────────────────────────────────
-// ENV VARS OBRIGATÓRIAS (Vercel → Settings → Environment Variables):
-//   OPENROUTER_API_KEY  — chave OpenRouter (obrigatória)
-//   GEMINI_API_KEY      — chave Gemini (opcional; só para gerar_capa)
-//   ACADEMY_URL         — URL pública do projecto (opcional; default: academy.vercel.app)
-// ──────────────────────────────────────────────────────────────────────────────
-// COMPATIBILIDADE COM callAcademyAPI() DO FRONTEND:
-//   Acções internas (plano_academico, gerar_capitulo, …)
-//     → data: { resposta: <string|object> }   (callAcademyAPI lê data.resposta)
-//   create_work (nova acção MVP)
-//     → data: { topic, content }              (contrato externo / spec MVP)
-// ──────────────────────────────────────────────────────────────────────────────
-// ROUTING DE "chat" (caso especial):
-//   O frontend envia { tipo:'chat', pedido, … } sem campo "acao".
-//   callAcademyAPI extrai acao=undefined → JSON.stringify omite "action".
-//   O router recupera via: body.action ?? payload.acao ?? payload.tipo
+// ENV VARS (Vercel → Settings → Environment Variables):
+//   OPENROUTER_API_KEY  — obrigatória
+//   GEMINI_API_KEY      — opcional (gerar_capa; usa fallback se ausente)
+//   ACADEMY_URL         — opcional (default: https://academy.vercel.app)
 // ──────────────────────────────────────────────────────────────────────────────
 // C1  finish_reason="length" → auto-continuação texto (máx 2 rounds)
-// C2  maxTokens 8 192 texto / 4 096 JSON+chat
-// C3  llmJSON: até 2 reparações de SyntaxError antes de lançar
-// C5  AbortController timeout 45 s em todos os fetch()
+// C2  maxTokens 8192 texto / 4096 JSON+chat
+// C3  llmJSON: até 2 reparações de SyntaxError
+// C5  AbortController timeout 45 s
 // I1  withRetry (1×, 1 s backoff)
-// I2  validateMinWords: aviso se output < 70 % do mínimo pedido
-// I3  revisao_trabalho: input máx 6 000 chars
-// I4  Logging estruturado: action, duração, provider
-// S1  gerar_capa: contrato normalizado { imagem, fallback }
-// S2  gerar_mea: garante ≤ 4 elementos devolvidos
-// S3  estrutura_academica: estruturaPadrao vazio omitido do prompt
+// I2  validateMinWords: aviso se output < 70 % do mínimo
+// I3  revisao_trabalho: input máx 6000 chars
+// I4  Logging estruturado
+// S1  gerar_capa: { imagem, fallback } normalizado
+// S2  gerar_mea: ≤ 4 elementos
+// S3  estrutura_academica: estruturaPadrao vazio omitido
 // S4  gerar_capa: erros nunca silenciosos
 // P1  temperature 0.4 académico / 0.7 criativo e chat
-// P2  maxTokens dinâmico baseado em palavrasPorCap
+// P2  maxTokens dinâmico (palavrasPorCap)
 // ══════════════════════════════════════════════════════════════════════════════
-
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 
 const VERSION  = '1.0.0';
 const OR_BASE  = 'https://openrouter.ai/api/v1';
 const MODEL    = 'openai/gpt-4o-mini';
-const SITE_URL = process.env.ACADEMY_URL ?? 'https://academy.vercel.app';
+const SITE_URL = process.env.ACADEMY_URL || 'https://academy.vercel.app';
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
-const CORS: Record<string, string> = {
+const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers':
-    'content-type, authorization, x-app-version, cache-control, pragma',
+  'Access-Control-Allow-Headers': 'content-type, authorization, x-app-version, cache-control, pragma',
 };
-
-// ── TYPES ─────────────────────────────────────────────────────────────────────
-
-interface Msg    { role: string; content: string }
-type     Payload = Record<string, unknown>;
 
 // ── RESPONSE ENVELOPE ─────────────────────────────────────────────────────────
 
 /**
- * Sucesso para acções internas (compatível com callAcademyAPI → data.resposta).
- * Para respostas de objecto, os campos são também espalhados no topo do data
- * para compatibilidade com spec externa (ex: create_work → data.topic, data.content).
+ * Sucesso — compatível com callAcademyAPI (lê data.resposta).
+ * Para objectos, os campos são espalhados no topo do data E guardados em
+ * data.resposta (alias), satisfazendo simultaneamente o contrato externo
+ * (ex: create_work → data.topic, data.content) e o frontend (data.resposta).
  */
-function okRes(action: string, resposta: unknown): Record<string, unknown> {
-  const data: Record<string, unknown> =
+function okRes(action, resposta) {
+  const data =
     resposta !== null && typeof resposta === 'object' && !Array.isArray(resposta)
-      ? { ...(resposta as Record<string, unknown>), resposta } // spread + alias
+      ? { ...resposta, resposta }
       : { resposta };
 
   return {
@@ -88,7 +70,7 @@ function okRes(action: string, resposta: unknown): Record<string, unknown> {
 }
 
 /** Erro padronizado. */
-function errRes(action: string, msg: string): Record<string, unknown> {
+function errRes(action, msg) {
   return {
     ok:    false,
     action,
@@ -102,24 +84,24 @@ function errRes(action: string, msg: string): Record<string, unknown> {
 // UTILITIES
 // ══════════════════════════════════════════════════════════════════════════════
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** I1 — 1 retry com 1 s de backoff. */
-async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
-  try { return await fn(); }
-  catch (e) {
-    console.warn(`[ACADEMY] ${label} falhou — retry 1 s — ${(e as Error).message}`);
-    await sleep(1_000);
+async function withRetry(fn, label) {
+  try {
+    return await fn();
+  } catch (e) {
+    console.warn(`[ACADEMY] ${label} falhou — retry 1 s — ${e.message}`);
+    await sleep(1000);
     return fn();
   }
 }
 
-/** P2 — Palavras → maxTokens (1 PT ≈ 1.4 tok × 1.5 buffer; min 4 096, max 8 192). */
-const wordsToTokens = (w: number) =>
-  Math.min(Math.max(Math.ceil(w * 1.4 * 1.5), 4_096), 8_192);
+/** P2 — Palavras → maxTokens (1 PT ≈ 1.4 tok × 1.5 buffer; min 4096, max 8192). */
+const wordsToTokens = (w) => Math.min(Math.max(Math.ceil(w * 1.4 * 1.5), 4096), 8192);
 
 /** I2 — Aviso se output < 70 % do mínimo. Nunca bloqueia. */
-function validateMinWords(text: string, min: number, label: string): string {
+function validateMinWords(text, min, label) {
   const n = text.trim().split(/\s+/).filter(Boolean).length;
   if (n < Math.floor(min * 0.7))
     console.warn(`[ACADEMY:WARN] ${label}: ${n} palavras geradas (esperado ≥ ${min})`);
@@ -131,16 +113,12 @@ function validateMinWords(text: string, min: number, label: string): string {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /** Chamada raw ao OpenRouter Chat Completions. */
-async function orCall(
-  msgs:      Msg[],
-  maxTokens: number,
-  temp:      number,
-): Promise<{ content: string; finishReason: string }> {
+async function orCall(msgs, maxTokens, temp) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OPENROUTER_API_KEY não configurada nas variáveis de ambiente Vercel');
 
   const ctrl = new AbortController();
-  const tid  = setTimeout(() => ctrl.abort(), 45_000); // C5
+  const tid  = setTimeout(() => ctrl.abort(), 45000); // C5
 
   try {
     const res = await fetch(`${OR_BASE}/chat/completions`, {
@@ -165,10 +143,9 @@ async function orCall(
       throw new Error(`OpenRouter ${res.status}: ${errText}`);
     }
 
-    const d = await res.json() as Record<string, unknown>;
-    const choices = d?.choices as Array<Record<string, unknown>> | undefined;
-    const content = ((choices?.[0]?.message) as Record<string, string> | undefined)?.content ?? '';
-    const finishReason = String(choices?.[0]?.finish_reason ?? 'stop');
+    const d           = await res.json();
+    const content     = d?.choices?.[0]?.message?.content ?? '';
+    const finishReason = String(d?.choices?.[0]?.finish_reason ?? 'stop');
 
     if (!content) throw new Error('OpenRouter: conteúdo vazio na resposta');
     return { content, finishReason };
@@ -186,20 +163,15 @@ async function orCall(
  * llmText — Texto livre com auto-continuação (C1).
  * I1: withRetry. P1: temp parametrizável. C2: maxTokens parametrizável.
  */
-async function llmText(
-  sys:       string,
-  usr:       string,
-  maxTokens = 8_192,
-  temp      = 0.4,
-): Promise<string> {
-  const msgs: Msg[] = [
+async function llmText(sys, usr, maxTokens = 8192, temp = 0.4) {
+  const msgs = [
     { role: 'system', content: sys },
     { role: 'user',   content: usr },
   ];
 
   const r1 = await withRetry(() => orCall(msgs, maxTokens, temp), 'llmText'); // I1
 
-  if (r1.finishReason !== 'length') return r1.content; // C1: completo, devolve directo
+  if (r1.finishReason !== 'length') return r1.content; // C1: completo
 
   // C1 — round 1 de continuação
   console.warn('[ACADEMY] finish_reason=length — continuação round 1');
@@ -234,34 +206,32 @@ async function llmText(
         console.warn('[ACADEMY] Texto incompleto após 2 rounds — a entregar o que existe.');
       return full1 + r3.content;
     } catch (e3) {
-      console.warn('[ACADEMY] Cont-round-2 falhou:', (e3 as Error).message);
+      console.warn('[ACADEMY] Cont-round-2 falhou:', e3.message);
       return full1;
     }
   } catch (e2) {
-    console.warn('[ACADEMY] Cont-round-1 falhou:', (e2 as Error).message);
+    console.warn('[ACADEMY] Cont-round-1 falhou:', e2.message);
     return r1.content;
   }
 }
 
 /**
  * llmJSON — JSON estruturado com até 2 reparações de SyntaxError (C3).
- * I1: withRetry. P1: temp 0.4 fixo (determinismo).
+ * I1: withRetry. P1: temp 0.4 fixo.
  */
-async function llmJSON(sys: string, usr: string): Promise<unknown> {
-  const sysJ =
-    sys + '\n\nResponde APENAS com JSON válido. Sem ```json. Sem texto fora do JSON.';
+async function llmJSON(sys, usr) {
+  const sysJ = sys + '\n\nResponde APENAS com JSON válido. Sem ```json. Sem texto fora do JSON.';
 
   const { content } = await withRetry( // I1
     () => orCall(
       [{ role: 'system', content: sysJ }, { role: 'user', content: usr }],
-      4_096, // C2
+      4096, // C2
       0.4,
     ),
     'llmJSON',
   );
 
-  const strip = (s: string) =>
-    s.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const strip = (s) => s.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 
   let raw = content;
 
@@ -277,11 +247,13 @@ async function llmJSON(sys: string, usr: string): Promise<unknown> {
             { role: 'system', content: 'Devolves APENAS JSON válido. Sem texto adicional.' },
             { role: 'user',   content: `JSON inválido:\n${raw}\n\nCorrige e devolve JSON válido.` },
           ],
-          4_096,
+          4096,
           0.2,
         );
         raw = fixed;
-      } catch { throw parseErr; }
+      } catch {
+        throw parseErr;
+      }
     }
   }
 
@@ -289,16 +261,12 @@ async function llmJSON(sys: string, usr: string): Promise<unknown> {
 }
 
 /** llmChat — Multi-turn. P1: temp 0.7 (conversacional). */
-async function llmChat(
-  sys:     string,
-  history: Msg[],
-  userMsg: string,
-): Promise<string> {
+async function llmChat(sys, history, userMsg) {
   const { content } = await withRetry(
     () => orCall(
       [{ role: 'system', content: sys }, ...history, { role: 'user', content: userMsg }],
-      3_000, // C2 chat
-      0.7,   // P1
+      3000, // C2 chat
+      0.7,  // P1
     ),
     'llmChat',
   );
@@ -312,11 +280,11 @@ async function llmChat(
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ── ping ──────────────────────────────────────────────────────────────────────
-function hPing(): string { return 'pong'; }
+function hPing() { return 'pong'; }
 
 // ── create_work  (acção principal MVP) ───────────────────────────────────────
-async function hCreateWork(b: Payload): Promise<Record<string, unknown>> {
-  const topic = String(b.topic ?? '').trim();
+async function hCreateWork(b) {
+  const topic = String(b.topic || '').trim();
   if (!topic) throw new Error("Campo 'topic' é obrigatório no payload");
 
   const content = await llmText(
@@ -331,16 +299,16 @@ Estrutura obrigatória:
 4. Referências Bibliográficas (mínimo 5 referências, formato APA 7.ª ed.)
 
 Regras de formatação: texto corrido académico, parágrafos separados por linha em branco, sem marcadores ou numeração automática. Mínimo 600 palavras.`,
-    8_192, // C2
-    0.4,   // P1 académico
+    8192, // C2
+    0.4,  // P1 académico
   );
 
-  // Devolve { topic, content } — okRes() espalha no data E cria data.resposta
+  // { topic, content } — okRes() espalha em data E cria data.resposta
   return { topic, content };
 }
 
 // ── plano_academico ───────────────────────────────────────────────────────────
-async function hPlanoAcademico(b: Payload): Promise<unknown> {
+async function hPlanoAcademico(b) {
   return llmJSON(
     'És um especialista académico do sistema universitário angolano. Respondes em português formal.',
     `Gera um plano académico de investigação para:
@@ -361,18 +329,17 @@ JSON obrigatório:
 
 // ── estrutura_academica ───────────────────────────────────────────────────────
 // S3: estruturaPadrao vazio omitido do prompt
-async function hEstruturaAcademica(b: Payload): Promise<unknown> {
+async function hEstruturaAcademica(b) {
   const ep =
-    Array.isArray(b.estruturaPadrao) && (b.estruturaPadrao as unknown[]).length > 0
+    Array.isArray(b.estruturaPadrao) && b.estruturaPadrao.length > 0
       ? `\nReferência de estrutura: ${JSON.stringify(b.estruturaPadrao)}`
       : '';
 
   return llmJSON(
-    'És especialista em estruturação de trabalhos académicos angolanos. ' +
-    'Segues normas das universidades de Angola.',
+    'És especialista em estruturação de trabalhos académicos angolanos. Segues normas das universidades de Angola.',
     `Gera estrutura de capítulos para:
-Tema: ${b.tema} | Tipo: ${b.tipoTrabalho} | Nível: ${b.nivel} | Páginas: ${b.pags ?? 15}
-Sugestão do professor: ${b.estruturaProf ?? 'nenhuma'}${ep}
+Tema: ${b.tema} | Tipo: ${b.tipoTrabalho} | Nível: ${b.nivel} | Páginas: ${b.pags || 15}
+Sugestão do professor: ${b.estruturaProf || 'nenhuma'}${ep}
 
 JSON obrigatório:
 {
@@ -387,15 +354,15 @@ Inclui obrigatoriamente: Introdução, 2-4 capítulos de desenvolvimento, Conclu
 
 // ── gerar_capitulo ────────────────────────────────────────────────────────────
 // P2: maxTokens dinâmico; I2: validação mínimo de palavras
-async function hGerarCapitulo(b: Payload): Promise<unknown> {
-  const subs     = Array.isArray(b.capSubs) ? (b.capSubs as string[]).join(', ') : '';
-  const minWords = Number(b.palavrasPorCap ?? 600);
+async function hGerarCapitulo(b) {
+  const subs     = Array.isArray(b.capSubs) ? b.capSubs.join(', ') : '';
+  const minWords = Number(b.palavrasPorCap || 600);
 
   const text = await llmText(
     'És um escritor académico de excelência. Escreves em português formal angolano com rigor científico.',
     `Escreve o Capítulo ${b.capNum} — "${b.capTitulo}" para um ${b.tipoTrabalho} sobre "${b.tema}".
 Sub-secções: ${subs || 'livre'} | Nível: ${b.nivel} | Palavras alvo: ${minWords}
-Objectivo: ${b.objetivo ?? ''} | Hipótese: ${b.hipotese ?? ''} | Metodologia: ${b.metodologia ?? ''}
+Objectivo: ${b.objetivo || ''} | Hipótese: ${b.hipotese || ''} | Metodologia: ${b.metodologia || ''}
 
 Texto académico corrido. Parágrafos separados por linha em branco. Sem # ou bullets.`,
     wordsToTokens(minWords), // P2
@@ -406,9 +373,9 @@ Texto académico corrido. Parágrafos separados por linha em branco. Sem # ou bu
 }
 
 // ── regenerar_capitulo ────────────────────────────────────────────────────────
-async function hRegerarCapitulo(b: Payload): Promise<unknown> {
-  const subs     = Array.isArray(b.capSubs) ? (b.capSubs as string[]).join(', ') : '';
-  const minWords = Number(b.palavrasPorCap ?? 600);
+async function hRegerarCapitulo(b) {
+  const subs     = Array.isArray(b.capSubs) ? b.capSubs.join(', ') : '';
+  const minWords = Number(b.palavrasPorCap || 600);
 
   const text = await llmText(
     'Regeneras capítulos académicos com nova perspectiva mas igual qualidade.',
@@ -416,21 +383,21 @@ async function hRegerarCapitulo(b: Payload): Promise<unknown> {
 Sub-secções: ${subs || 'livre'}
 Nova versão, diferente da anterior. Texto académico formal. Parágrafos com linha em branco.`,
     wordsToTokens(minWords),
-    0.7, // P1 criativo — diferenciação forçada
+    0.7, // P1 criativo
   );
 
   return validateMinWords(text, minWords, `Regen Cap ${b.capNum}`); // I2
 }
 
 // ── editar_texto ──────────────────────────────────────────────────────────────
-async function hEditarTexto(b: Payload): Promise<unknown> {
-  const ops: Record<string, string> = {
+async function hEditarTexto(b) {
+  const ops = {
     melhorar: 'Melhora o estilo académico, fluidez e precisão linguística. Mantém o conteúdo original.',
     resumir:  'Resume mantendo as ideias principais. Estilo académico formal.',
     expandir: 'Expande com mais desenvolvimento, exemplos e profundidade académica.',
   };
-  const instrucao = ops[String(b.subacao ?? 'melhorar')] ?? ops.melhorar;
-  const texto     = String(b.texto ?? '').slice(0, 3_000);
+  const instrucao = ops[String(b.subacao || 'melhorar')] || ops.melhorar;
+  const texto     = String(b.texto || '').slice(0, 3000);
 
   return llmText(
     'És um editor académico especializado em português de Angola.',
@@ -439,7 +406,7 @@ async function hEditarTexto(b: Payload): Promise<unknown> {
 }
 
 // ── verificar_coerencia ───────────────────────────────────────────────────────
-async function hVerificarCoerencia(b: Payload): Promise<unknown> {
+async function hVerificarCoerencia(b) {
   return llmJSON(
     'Revisor académico especializado em coerência estrutural de trabalhos universitários.',
     `Verifica coerência entre problema, objectivo, introdução e conclusão:
@@ -456,26 +423,25 @@ Se tudo correcto: alertas e sugestoes são arrays vazios.`,
 
 // ── gerar_mea ─────────────────────────────────────────────────────────────────
 // S2: garante ≤ 4 elementos
-async function hGerarMEA(b: Payload): Promise<unknown> {
+async function hGerarMEA(b) {
   const data = await llmJSON(
-    'Especialista em enriquecimento académico visual. ' +
-    'Decides onde gráficos/tabelas/esquemas acrescentam valor real.',
+    'Especialista em enriquecimento académico visual. Decides onde gráficos/tabelas/esquemas acrescentam valor real.',
     `Trabalho sobre "${b.tema}". Capítulos: ${JSON.stringify(b.capitulos)}
 
 JSON obrigatório (máx 4 elementos):
 {"elementos":[{"tipo":"grafico","capitulo":1,"titulo":"..."},{"tipo":"tabela","capitulo":2,"titulo":"..."}]}
 "tipo" é exactamente: "grafico", "tabela" ou "esquema".`,
-  ) as Record<string, unknown>;
+  );
 
   // S2: truncar se modelo devolveu mais de 4
-  if (Array.isArray(data?.elementos) && (data.elementos as unknown[]).length > 4) {
-    (data.elementos as unknown[]).splice(4);
+  if (Array.isArray(data?.elementos) && data.elementos.length > 4) {
+    data.elementos.splice(4);
   }
   return data;
 }
 
 // ── mea_grafico ───────────────────────────────────────────────────────────────
-async function hMEAGrafico(b: Payload): Promise<unknown> {
+async function hMEAGrafico(b) {
   return llmJSON(
     'Geras dados realistas para gráficos académicos.',
     `Gráfico para "${b.capTitulo}" (tema: ${b.tema}). Contexto: ${b.capResumo}
@@ -485,7 +451,7 @@ JSON: {"titulo":"...","tipo":"bar","labels":["A","B","C","D"],"dados":[40,65,52,
 }
 
 // ── mea_tabela ────────────────────────────────────────────────────────────────
-async function hMEATabela(b: Payload): Promise<unknown> {
+async function hMEATabela(b) {
   return llmJSON(
     'Geras tabelas académicas realistas.',
     `Tabela para "${b.capTitulo}" (tema: ${b.tema}). Contexto: ${b.capResumo}
@@ -495,7 +461,7 @@ Máx 4 colunas e 5 linhas.`,
 }
 
 // ── mea_esquema ───────────────────────────────────────────────────────────────
-async function hMEAEsquema(b: Payload): Promise<unknown> {
+async function hMEAEsquema(b) {
   return llmJSON(
     'Geras esquemas de processos académicos claros.',
     `Esquema para "${b.capTitulo}" (tema: ${b.tema}). Contexto: ${b.capResumo}
@@ -507,7 +473,7 @@ JSON: {"titulo":"...","etapas":[{"num":1,"titulo":"Etapa 1","descricao":"desc br
 // ── gerar_capa ────────────────────────────────────────────────────────────────
 // S1: contrato normalizado { imagem, fallback }
 // S4: erros nunca silenciosos
-async function hGerarCapa(b: Payload): Promise<unknown> {
+async function hGerarCapa(b) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
     console.warn('[ACADEMY] hGerarCapa: GEMINI_API_KEY não definida — fallback tipográfico.');
@@ -537,33 +503,30 @@ async function hGerarCapa(b: Payload): Promise<unknown> {
       return { imagem: null, fallback: true };
     }
 
-    const d   = await res.json() as Record<string, unknown>;
-    const b64 = ((d?.predictions as Array<Record<string, string>> | undefined)?.[0])
-      ?.bytesBase64Encoded;
+    const d   = await res.json();
+    const b64 = d?.predictions?.[0]?.bytesBase64Encoded;
 
-    console.log(
-      `[ACADEMY] gerar_capa — ${Date.now() - t0} ms — ${b64 ? 'imagem gerada' : 'resposta vazia'}`,
-    );
+    console.log(`[ACADEMY] gerar_capa — ${Date.now() - t0} ms — ${b64 ? 'imagem gerada' : 'resposta vazia'}`);
 
     if (b64) return { imagem: `data:image/png;base64,${b64}`, fallback: false };
     console.warn('[ACADEMY] hGerarCapa: Gemini devolveu resultado vazio — fallback.'); // S4
 
   } catch (e) {
-    console.warn('[ACADEMY] hGerarCapa: excepção —', (e as Error).message); // S4
+    console.warn('[ACADEMY] hGerarCapa: excepção —', e.message); // S4
   }
 
   return { imagem: null, fallback: true }; // S1
 }
 
 // ── revisao_trabalho ──────────────────────────────────────────────────────────
-// I3: input máx 6 000 chars
-async function hRevisaoTrabalho(b: Payload): Promise<unknown> {
-  const texto = String(b.texto ?? '').slice(0, 6_000); // I3
+// I3: input máx 6000 chars
+async function hRevisaoTrabalho(b) {
+  const texto = String(b.texto || '').slice(0, 6000); // I3
   const fp    = b.feedbackProf ? `\nFeedback professor: ${b.feedbackProf}` : '';
 
   return llmJSON(
     'Revisor académico sénior de trabalhos universitários angolanos. Rigoroso, construtivo e preciso.',
-    `Analisa e revisa (nível: ${b.nivel}, tipo: ${b.tipoAnalise ?? 'tudo'})${fp}:
+    `Analisa e revisa (nível: ${b.nivel}, tipo: ${b.tipoAnalise || 'tudo'})${fp}:
 TEXTO: ${texto}
 
 JSON obrigatório:
@@ -584,7 +547,7 @@ JSON obrigatório:
 }
 
 // ── plano_livro ───────────────────────────────────────────────────────────────
-async function hPlanoLivro(b: Payload): Promise<unknown> {
+async function hPlanoLivro(b) {
   return llmJSON(
     'Editor literário especializado no mercado africano lusófono.',
     `Plano editorial completo:
@@ -596,26 +559,24 @@ JSON com exactamente ${b.numCaps} capítulos:
 }
 
 // ── conceito_capa_livro ───────────────────────────────────────────────────────
-async function hConceitoCapaLivro(b: Payload): Promise<unknown> {
+async function hConceitoCapaLivro(b) {
   return llmText(
     'Designer editorial com experiência em capas de livros para o mercado angolano e lusófono.',
     `Conceito de capa para "${b.titulo}" (${b.tipoLivro}), público: ${b.publico}, tom: ${b.tom}.
 4-5 frases: paleta de cores, tipografia, elementos visuais, atmosfera. Português, concreto e inspirador.`,
-    4_096,
+    4096,
     0.7, // P1 criativo
   );
 }
 
 // ── gerar_capitulo_livro ──────────────────────────────────────────────────────
 // P1: 0.7 criativo; P2: maxTokens dinâmico; I2: validação mínimo
-async function hGerarCapituloLivro(b: Payload): Promise<unknown> {
-  const extras   = Array.isArray(b.extras)
-    ? ` Extras: ${(b.extras as string[]).join(', ')}.`
-    : '';
+async function hGerarCapituloLivro(b) {
+  const extras   = Array.isArray(b.extras) ? ` Extras: ${b.extras.join(', ')}.` : '';
   const minWords = 600;
 
   const text = await llmText(
-    `Escritor profissional. Tom ${b.tom ?? 'formal'}. Escreves para público ${b.publico ?? 'geral'}.`,
+    `Escritor profissional. Tom ${b.tom || 'formal'}. Escreves para público ${b.publico || 'geral'}.`,
     `Capítulo ${b.capNum} — "${b.capTitulo}" do livro "${b.titulo}".
 Tema: ${b.tema} | Tom: ${b.tom} | Público: ${b.publico}
 Descrição: ${b.capDescricao}${extras}
@@ -629,14 +590,12 @@ Mínimo 600 palavras. Parágrafos separados por linha em branco. Sem # ou bullet
 }
 
 // ── chat ──────────────────────────────────────────────────────────────────────
-// Nota: o frontend envia { tipo:'chat', pedido, … } sem "acao".
-// O router recupera action='chat' via payload.tipo (ver routing abaixo).
-async function hChat(b: Payload): Promise<unknown> {
-  const tema      = String(b.tema ?? 'trabalho académico');
-  const tipo      = String(b.tipoTrabalho ?? 'Trabalho Académico');
-  const estrutura = Array.isArray(b.estrutura)
-    ? (b.estrutura as string[]).join(', ')
-    : '';
+// O frontend envia { tipo:'chat', pedido, … } sem "acao".
+// O router recupera action='chat' via payload.tipo (ver abaixo).
+async function hChat(b) {
+  const tema      = String(b.tema || 'trabalho académico');
+  const tipo      = String(b.tipoTrabalho || 'Trabalho Académico');
+  const estrutura = Array.isArray(b.estrutura) ? b.estrutura.join(', ') : '';
 
   const sys = b.modoInstrutor
     ? `És o ACADEMY Instrutor — tutor académico estratégico e exigente para estudantes angolanos.
@@ -646,24 +605,21 @@ Guias com perguntas, nunca dás respostas directas. Identificas pontos fracos. R
 Contexto: ${tipo} sobre "${tema}".${estrutura ? ` Estrutura: ${estrutura}.` : ''}
 Respondes em português de forma clara, directa e útil. Podes usar **negrito** e listas.`;
 
-  const history: Msg[] = Array.isArray(b.historico)
-    ? (b.historico as Array<Record<string, string>>).map((h) => ({
-        role:    String(h.role    ?? 'user'),
-        content: String(h.content ?? ''),
+  const history = Array.isArray(b.historico)
+    ? b.historico.map((h) => ({
+        role:    String(h.role    || 'user'),
+        content: String(h.content || ''),
       }))
     : [];
 
-  return llmChat(sys, history, String(b.pedido ?? ''));
+  return llmChat(sys, history, String(b.pedido || ''));
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // VERCEL HANDLER — único entry point
 // ══════════════════════════════════════════════════════════════════════════════
 
-export default async function handler(
-  req: VercelRequest,
-  res: VercelResponse,
-): Promise<void> {
+export default async function handler(req, res) {
   // CORS em todos os pedidos
   Object.entries(CORS).forEach(([k, v]) => res.setHeader(k, v));
 
@@ -676,18 +632,18 @@ export default async function handler(
   }
 
   // Vercel auto-parseia JSON; req.body já é objecto
-  const body    = (req.body ?? {}) as Record<string, unknown>;
-  const payload = ((body.payload ?? {}) as Payload);
+  const body    = req.body || {};
+  const payload = body.payload || {};
 
-  // Action routing — suporta:
-  //   novo  { action: 'plano_academico', payload: { … } }
-  //   chat  { payload: { tipo: 'chat', pedido: … } }    (action omitida por JSON.stringify)
-  //   legado flat { acao: 'plano_academico', … }        (retrocompat)
+  // Action routing — suporta 3 formatos:
+  //   novo    { action: 'plano_academico', payload: { … } }
+  //   chat    { payload: { tipo: 'chat', pedido: … } }     (action omitida por JSON.stringify)
+  //   legado  { acao: 'plano_academico', … }               (retrocompat)
   const action = String(
-    body.action      ??  // formato novo
-    payload.acao     ??  // legado no payload
-    payload.tipo     ??  // chat
-    body.acao        ??  // legado flat
+    body.action    ||  // formato novo
+    payload.acao   ||  // legado no payload
+    payload.tipo   ||  // chat
+    body.acao      ||  // legado flat
     '',
   );
 
@@ -700,7 +656,7 @@ export default async function handler(
   console.log(`[ACADEMY] ▶ ${action}`); // I4
 
   try {
-    let resposta: unknown;
+    let resposta;
 
     switch (action) {
       case 'ping':                 resposta = hPing();                             break;
@@ -729,7 +685,7 @@ export default async function handler(
     console.log(`[ACADEMY] ✓ ${action} — ${Date.now() - t0} ms`); // I4
     res.status(200).json(okRes(action, resposta));
 
-  } catch (e: unknown) {
+  } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[ACADEMY] ✗ "${action}" em ${Date.now() - t0} ms:`, msg); // I4
     res.status(500).json(errRes(action, msg));

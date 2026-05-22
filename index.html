@@ -4,122 +4,16 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=overlays-content"/>
 <title>ACADEMY ScOS v25 — Scientific Operating System</title>
-
-<!-- ═══ PWA: Manifest ═══ -->
-<link rel="manifest" href="/manifest.json"/>
-
-<!-- ═══ PWA: Theme & Status Bar ═══ -->
-<meta name="theme-color" content="#43E8A7"/>
-<meta name="msapplication-TileColor" content="#0C0E14"/>
-<meta name="msapplication-navbutton-color" content="#43E8A7"/>
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-
-<!-- ═══ PWA: iOS Fullscreen ═══ -->
-<meta name="apple-mobile-web-app-capable" content="yes"/>
-<meta name="apple-mobile-web-app-title" content="ACADEMY"/>
-<meta name="mobile-web-app-capable" content="yes"/>
-
-<!-- ═══ PWA: Ícones Apple ═══ -->
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png"/>
-<link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png"/>
-<link rel="apple-touch-startup-image" href="/icons/icon-512.png"/>
-
-<!-- ═══ PWA: Favicon / Ícone Browser ═══ -->
-<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png"/>
-<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png"/>
-<link rel="shortcut icon" href="/icons/icon-192.png"/>
-
-<!-- ═══ SEO / Open Graph ═══ -->
-<meta name="description" content="Sistema Científico de Geração Académica — Cria trabalhos, monografias, livros e relatórios com IA."/>
-<meta property="og:title" content="ACADEMY — Scientific Operating System"/>
-<meta property="og:description" content="Geração académica com inteligência artificial para estudantes angolanos."/>
-<meta property="og:image" content="/icons/icon-512.png"/>
-<meta property="og:type" content="website"/>
-
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<!-- Supabase removido — backend é Vercel academy-engine (OpenRouter) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 /* ═══════════════════════════════════════════════════════
    ACADEMY — DESIGN SYSTEM MINIMALISTA
-   Render · Vercel — Developer-first aesthetic
+   Render · Supabase · Vercel — Developer-first aesthetic
    Inter UI + JetBrains Mono (data only)
 ═══════════════════════════════════════════════════════ */
-
-/* ── PWA: Splash Screen ── */
-#pwa-splash{
-  position:fixed;inset:0;z-index:9999;
-  background:#0C0E14;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
-  transition:opacity .5s ease,visibility .5s ease;
-}
-#pwa-splash.oculto{opacity:0;visibility:hidden;pointer-events:none;}
-#pwa-splash-logo{width:120px;height:120px;border-radius:24px;object-fit:contain;}
-#pwa-splash-nome{
-  font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.22em;
-  color:#43E8A7;text-transform:uppercase;
-}
-#pwa-splash-bar{
-  width:120px;height:2px;background:rgba(67,232,167,.15);border-radius:2px;overflow:hidden;
-}
-#pwa-splash-progress{
-  height:100%;width:0;background:linear-gradient(90deg,#2BB57E,#43E8A7);border-radius:2px;
-  animation:pwa-load 1.4s cubic-bezier(.16,1,.3,1) forwards;
-}
-@keyframes pwa-load{to{width:100%}}
-
-/* ── PWA: Install Banner ── */
-#pwa-install-banner{
-  position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(100px);
-  z-index:200;width:calc(100% - 32px);max-width:398px;
-  background:#161922;border:1px solid rgba(67,232,167,.2);border-radius:12px;
-  padding:14px 16px;display:flex;align-items:center;gap:12px;
-  box-shadow:0 8px 32px rgba(0,0,0,.5);
-  transition:transform .4s cubic-bezier(.16,1,.3,1),opacity .4s ease;
-  opacity:0;pointer-events:none;
-}
-#pwa-install-banner.visivel{transform:translateX(-50%) translateY(0);opacity:1;pointer-events:auto;}
-#pwa-install-icon{width:40px;height:40px;border-radius:10px;object-fit:contain;flex-shrink:0;}
-#pwa-install-texto{flex:1;min-width:0}
-#pwa-install-texto strong{display:block;font-size:13px;font-weight:600;color:#F8FAFC;margin-bottom:2px}
-#pwa-install-texto span{font-size:11px;color:#64748B}
-#pwa-install-btn{
-  background:#43E8A7;color:#0C0E14;border:none;border-radius:7px;
-  padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;
-  font-family:'Inter',sans-serif;
-}
-#pwa-install-fechar{
-  width:24px;height:24px;display:flex;align-items:center;justify-content:center;
-  cursor:pointer;color:#334155;font-size:13px;flex-shrink:0;border-radius:4px;
-  transition:color .14s;
-}
-#pwa-install-fechar:hover{color:#94A3B8;}
-
-/* ── PWA: Offline Indicator ── */
-#pwa-offline{
-  position:fixed;top:0;left:50%;transform:translateX(-50%);
-  z-index:500;width:calc(100% - 32px);max-width:398px;
-  background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.3);
-  border-radius:0 0 8px 8px;padding:7px 14px;
-  display:flex;align-items:center;gap:8px;
-  font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.06em;color:#FCA5A5;
-  transition:transform .3s ease,opacity .3s ease;
-  transform:translateY(-100%);opacity:0;
-}
-#pwa-offline.visivel{transform:translateY(0);opacity:1;}
-
-/* ── PWA: Update Banner ── */
-#pwa-update-banner{
-  position:fixed;top:12px;left:50%;transform:translateX(-50%) translateY(-80px);
-  z-index:300;width:calc(100% - 32px);max-width:398px;
-  background:#161922;border:1px solid rgba(56,189,248,.25);border-radius:10px;
-  padding:12px 16px;display:flex;align-items:center;gap:10px;
-  transition:transform .4s cubic-bezier(.16,1,.3,1);
-}
-#pwa-update-banner.visivel{transform:translateX(-50%) translateY(0);}
-
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 
 /* ── MODO ESCURO (padrão) ── */
@@ -970,44 +864,6 @@ input,textarea,select{max-width:100%}
 </style>
 </head>
 <body>
-
-<!-- ═══════════════════════════════════════════════════
-     PWA: SPLASH SCREEN
-     Aparece durante o carregamento inicial da app
-═══════════════════════════════════════════════════ -->
-<div id="pwa-splash">
-  <img id="pwa-splash-logo" src="/icons/icon-192.png" alt="ACADEMY"/>
-  <div id="pwa-splash-nome">● ACADEMY · SCOS</div>
-  <div id="pwa-splash-bar"><div id="pwa-splash-progress"></div></div>
-</div>
-
-<!-- ═══ PWA: OFFLINE INDICATOR ═══ -->
-<div id="pwa-offline">
-  <span style="font-size:10px">⚡</span>
-  <span>SEM LIGAÇÃO · modo offline activo</span>
-</div>
-
-<!-- ═══ PWA: INSTALL BANNER (Add to Home Screen) ═══ -->
-<div id="pwa-install-banner">
-  <img id="pwa-install-icon" src="/icons/icon-192.png" alt="ACADEMY"/>
-  <div id="pwa-install-texto">
-    <strong>Instalar ACADEMY</strong>
-    <span>Adicionar ao ecrã inicial — acesso rápido</span>
-  </div>
-  <button id="pwa-install-btn" onclick="pwaInstalar()">Instalar</button>
-  <div id="pwa-install-fechar" onclick="pwaFecharBanner()">✕</div>
-</div>
-
-<!-- ═══ PWA: UPDATE BANNER ═══ -->
-<div id="pwa-update-banner" style="display:none">
-  <div style="flex:1;font-family:var(--fm);font-size:9px;color:var(--t2);letter-spacing:.06em">
-    <strong style="color:var(--o)">Nova versão disponível</strong> — atualiza para melhorar a experiência
-  </div>
-  <button onclick="pwaAtualizar()" style="background:var(--o);color:#0a0f1a;border:none;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">Atualizar</button>
-  <div onclick="document.getElementById('pwa-update-banner').style.display='none'"
-       style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t3);font-size:11px;flex-shrink:0">✕</div>
-</div>
-
 <div class="shell" id="shell">
   <div class="amb"></div><div class="grelha"></div>
 
@@ -3581,66 +3437,57 @@ function mostrarToast(msg){
 }
 
 /* ════════════════════════════════════════════════════════
-   ACADEMY v25 — BACKEND: Vercel academy-engine v4.0 (OpenRouter)
-   Supabase removido. Toda a IA passa pelo academy-engine.js.
-   Contrato: POST { action, payload } → { ok, action, data, error, meta }
+   ACADEMY — VERSIONING & SYNC
 ════════════════════════════════════════════════════════ */
-const ACADEMY_ENGINE_URL='/api/academy-engine';
-/* db=null mantido para compatibilidade — não é usado */
-let db=null;
-function initSupabase(){/* Supabase desactivado — sem operação */}
+const APP_VERSION='5.2.1';
 
 /* ════════════════════════════════════════════════════════
-   ACADEMY v25 — CHAMADA CENTRAL AO ACADEMY ENGINE
-   Contrato de entrada  : { acao|tipo, ...camposDoPayload }
-   Contrato de saída    : resposta já desencapsulada (string | object)
-   Backend (intacto)    : api/academy-engine.js v4.0
+   apiRequest — ÚNICO ENTRY POINT DO ENGINE
+   Frontend → /api/academy-engine (Action Router)
+      → Pipeline Engine
+      → LLM Orchestrator (Groq → Gemini → CF fallback)
+      → Validation Layer → Retry Engine → Supabase
+   Zero Supabase no frontend. Zero chaves expostas.
 ════════════════════════════════════════════════════════ */
-async function callAcademyAPI(rawPayload){
-  /* Extrai a action de acao ou tipo (chat usa tipo:'chat') */
-  const action=rawPayload.acao||rawPayload.tipo||'';
-  /* Remove acao/tipo do payload — o backend espera campos limpos em payload */
-  const{acao:_a,tipo:_t,...payload}=rawPayload;
+async function apiRequest(action, payload = {}) {
+  return fetch('/api/academy-engine', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      action,
+      payload
+    })
+  }).then(res => res.json());
+}
 
-  const ctrl=new AbortController();
-  /* 60 s — Vercel pode demorar em gerações longas */
-  const tid=setTimeout(()=>ctrl.abort(),60000);
-  let resp;
-  try{
-    resp=await fetch(ACADEMY_ENGINE_URL,{
-      method:'POST',
-      mode:'cors',
-      signal:ctrl.signal,
-      headers:{'Content-Type':'application/json'},
-      /* Envelope correcto: { action, payload } */
-      body:JSON.stringify({action,payload})
-    });
-  }finally{clearTimeout(tid);}
-
-  if(!resp.ok){
-    let errMsg='Academy Engine: HTTP '+resp.status;
-    try{const ed=await resp.json();errMsg=ed?.error||errMsg;}catch(e){}
-    const err=new Error(errMsg);err.status=resp.status;throw err;
+/* ════════════════════════════════════════════════════════
+   callAcademyAPI — interface de alto nível (usa apiRequest)
+   Mantém compatibilidade com todo o código existente.
+   Extrai { acao, ...rest } e delega para apiRequest(acao, rest).
+════════════════════════════════════════════════════════ */
+async function callAcademyAPI(payload){
+  const{acao,...rest}=payload;
+  const result=await apiRequest(acao,rest);
+  if(!result?.ok){
+    const err=new Error(result?.error||'Erro desconhecido');
+    if(result?.error&&(result.error.includes('429')||result.error.includes('quota')))err.status=429;
+    throw err;
   }
-
-  /* Resposta: { ok, action, data:{ resposta, ...campos }, error, meta } */
-  const envelope=await resp.json();
-  if(!envelope?.ok)throw new Error(envelope?.error||'Academy Engine: resposta inválida');
-  const resposta=envelope?.data?.resposta;
-  if(resposta===undefined||resposta===null||resposta==='')
-    throw new Error('Academy Engine: resposta vazia');
-  return resposta;
+  if(!result?.data?.resposta||result.data.resposta.length<2)throw new Error('Backend: resposta vazia');
+  return result.data.resposta;
 }
 
 
 function renderErroAPI(ec,erMsg,retryCb,voltarCb){
-  const linhas=erMsg.replace('ACADEMY FALHOU:\n','').split('\n').filter(Boolean);
+  const linhas=erMsg.replace('GEMINI FALHOU:\n','').split('\n').filter(Boolean);
   const isCORS=erMsg.includes('EDGE_DOWN')||linhas.some(l=>l.includes('CORS')||l.includes('Failed to fetch')||l.includes('NetworkError'));
   const isQuota=erMsg.includes('QUOTA')||(!isCORS&&linhas.some(l=>l.includes('429')||l.includes('quota')));
   const is404=!isCORS&&!isQuota&&linhas.some(l=>l.includes('404'));
   const detalhes=linhas.map(l=>`<div style="text-align:left;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.05)">${l}</div>`).join('');
   let iconeTitulo='📡';
-  let tituloMsg='Falha no servidor ACADEMY';
+  let tituloMsg='Falha na API Gemini';
   let descMsg='Todos os modelos tentados. Detalhes:';
   if(isCORS){
     iconeTitulo='🔌';
@@ -3649,7 +3496,7 @@ function renderErroAPI(ec,erMsg,retryCb,voltarCb){
   } else if(isQuota){
     iconeTitulo='⏳';
     tituloMsg='Quota diária esgotada';
-    descMsg='Atingiste o limite da API. O sistema vai tentar automaticamente com modelos alternativos. Aguarda uns segundos e tenta novamente.';
+    descMsg='Atingiste o limite gratuito da API Gemini (Free Tier). A quota repõe automaticamente todos os dias à meia-noite (hora de Lisboa/Luanda). Tenta novamente mais tarde.';
   } else if(is404){
     iconeTitulo='🔌';
     tituloMsg='Modelo não encontrado';
@@ -4339,7 +4186,7 @@ async function enviarChat(){
   try{
     const tp=TIPOS.find(t=>t.id===E.cfg.tipo)||{n:'Trabalho Académico'};
     const resposta=await callAcademyAPI({
-      acao:'chat',
+      tipo:'chat',
       pedido:texto,
       historico:chatHistorico.slice(-9,-1),
       modoInstrutor:!!E.instrutorAtivo,
@@ -4365,8 +4212,6 @@ async function enviarChat(){
 /* ════════════════════════════
    INICIALIZAÇÃO
 ════════════════════════════ */
-initSupabase();
-
 /* Restaurar tema */
 const temaGuardado=LS.g('tema')||'escuro';
 E.tema=temaGuardado;
@@ -4421,221 +4266,6 @@ aResponsivo();
    gerar_capitulo_livro  → { titulo, tema, tom, publico, capNum, capTitulo, capDescricao, extras }
    chat                  → { tipo:'chat', pedido, historico, modoInstrutor, tema, tipoTrabalho, estrutura, plano }
 ════════════════════════════════════════════════════════════════════ */
-
-/* ════════════════════════════════════════════════════════════════════
-   ACADEMY PWA ENGINE v1.0
-   Service Worker · Install Banner · Offline · Push Notifications
-════════════════════════════════════════════════════════════════════ */
-
-/* ── Estado PWA ─────────────────────────────────────────────────── */
-let _pwaInstallPrompt = null;
-let _pwaRegistration  = null;
-let _pwaOffline       = false;
-
-/* ── 1. SERVICE WORKER ──────────────────────────────────────────── */
-async function pwaRegistarSW() {
-  if (!('serviceWorker' in navigator)) return;
-  try {
-    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-    _pwaRegistration = reg;
-
-    /* Detectar nova versão disponível */
-    reg.addEventListener('updatefound', () => {
-      const newSW = reg.installing;
-      if (!newSW) return;
-      newSW.addEventListener('statechange', () => {
-        if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-          const banner = document.getElementById('pwa-update-banner');
-          if (banner) {
-            banner.style.display = 'flex';
-            banner.classList.add('visivel');
-          }
-        }
-      });
-    });
-
-    /* Verificar actualizações a cada 30 minutos */
-    setInterval(() => reg.update(), 30 * 60 * 1000);
-
-    console.log('[PWA] Service Worker registado com sucesso');
-  } catch (e) {
-    console.warn('[PWA] Service Worker falhou:', e.message);
-  }
-}
-
-function pwaAtualizar() {
-  if (_pwaRegistration?.waiting) {
-    _pwaRegistration.waiting.postMessage({ action: 'skipWaiting' });
-  }
-  window.location.reload();
-}
-
-/* ── 2. INSTALL PROMPT ──────────────────────────────────────────── */
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  _pwaInstallPrompt = e;
-
-  /* Mostrar banner de instalação após 3 segundos (só 1 vez por sessão) */
-  const jaViu = sessionStorage.getItem('pwa-install-dismissed');
-  if (!jaViu) {
-    setTimeout(() => {
-      const banner = document.getElementById('pwa-install-banner');
-      if (banner) banner.classList.add('visivel');
-    }, 3000);
-  }
-});
-
-async function pwaInstalar() {
-  if (!_pwaInstallPrompt) {
-    /* iOS: mostrar instruções manuais */
-    mostrarToast('No iPhone/iPad: toca em Partilhar → "Adicionar ao ecrã inicial"');
-    return;
-  }
-  pwaFecharBanner();
-  const result = await _pwaInstallPrompt.prompt();
-  _pwaInstallPrompt = null;
-  if (result?.outcome === 'accepted') {
-    mostrarToast('✓ ACADEMY instalado com sucesso!');
-  }
-}
-
-function pwaFecharBanner() {
-  sessionStorage.setItem('pwa-install-dismissed', '1');
-  const banner = document.getElementById('pwa-install-banner');
-  if (banner) banner.classList.remove('visivel');
-}
-
-window.addEventListener('appinstalled', () => {
-  _pwaInstallPrompt = null;
-  pwaFecharBanner();
-  console.log('[PWA] App instalada');
-});
-
-/* ── 3. ONLINE / OFFLINE DETECTION ─────────────────────────────── */
-function pwaAtualizarEstadoRede() {
-  const offline = !navigator.onLine;
-  const indicator = document.getElementById('pwa-offline');
-  if (!indicator) return;
-
-  if (offline && !_pwaOffline) {
-    indicator.classList.add('visivel');
-    _pwaOffline = true;
-    mostrarToast('⚡ Sem ligação — modo offline activo');
-  } else if (!offline && _pwaOffline) {
-    indicator.classList.remove('visivel');
-    _pwaOffline = false;
-    mostrarToast('✓ Ligação restabelecida');
-  }
-}
-
-window.addEventListener('online',  pwaAtualizarEstadoRede);
-window.addEventListener('offline', pwaAtualizarEstadoRede);
-
-/* ── 4. PUSH NOTIFICATIONS ──────────────────────────────────────── */
-async function pwaPedirPermissaoNotificacoes() {
-  if (!('Notification' in window)) {
-    mostrarToast('⚠ Notificações não suportadas neste browser.');
-    return false;
-  }
-  if (Notification.permission === 'granted') return true;
-  if (Notification.permission === 'denied') {
-    mostrarToast('⚠ Notificações bloqueadas. Activa nas definições do browser.');
-    return false;
-  }
-  const permission = await Notification.requestPermission();
-  return permission === 'granted';
-}
-
-async function pwaNotificar(titulo, corpo, opcoes = {}) {
-  const permitido = await pwaPedirPermissaoNotificacoes();
-  if (!permitido) return;
-
-  /* Usar SW registration se disponível (mais fiável) */
-  if (_pwaRegistration?.showNotification) {
-    return _pwaRegistration.showNotification(titulo, {
-      body:    corpo,
-      icon:    '/icons/icon-192.png',
-      badge:   '/icons/icon-192.png',
-      vibrate: [100, 50, 100],
-      tag:     opcoes.tag     || 'academy',
-      data:    opcoes.data    || {},
-      ...opcoes,
-    });
-  }
-
-  /* Fallback: Notification API directa */
-  return new Notification(titulo, {
-    body: corpo,
-    icon: '/icons/icon-192.png',
-    ...opcoes,
-  });
-}
-
-/* ── 5. NOTIFICAÇÕES DE CONCLUSÃO (hook nos handlers existentes) ── */
-
-/* Sobrepor a função de conclusão de geração para notificar */
-const _genOriginal = typeof iniciarGer !== 'undefined' ? null : null;
-
-function pwaNotificarConclusaoCapitulo(numCaps) {
-  pwaNotificar(
-    '🎓 Trabalho concluído!',
-    `${numCaps} capítulos gerados com sucesso. O teu documento está pronto.`,
-    { tag: 'conclusao-capitulo', data: { url: '/' } }
-  );
-}
-
-function pwaNotificarConclusaoLivro(titulo) {
-  pwaNotificar(
-    '📖 Livro concluído!',
-    `"${titulo}" foi gerado com sucesso. Pronto para exportar.`,
-    { tag: 'conclusao-livro', data: { url: '/' } }
-  );
-}
-
-/* ── 6. SPLASH SCREEN: ocultar após app carregar ────────────────── */
-function pwaOcultarSplash() {
-  const splash = document.getElementById('pwa-splash');
-  if (!splash) return;
-  setTimeout(() => splash.classList.add('oculto'), 1200);
-}
-
-/* ── 7. SHORTCUTS DA URL (manifest shortcuts) ───────────────────── */
-function pwaHandleStartupAction() {
-  const params = new URLSearchParams(window.location.search);
-  const acao = params.get('acao');
-  if (acao === 'criar') {
-    setTimeout(() => { if (typeof nav === 'function') { E.ecra='mbs'; renderizar(); }}, 500);
-  } else if (acao === 'livro') {
-    setTimeout(() => { if (typeof nav === 'function') { E.ecra='ebook'; renderizar(); }}, 500);
-  }
-}
-
-/* ── INICIALIZAÇÃO PWA ──────────────────────────────────────────── */
-(async function pwaInit() {
-  /* Registar SW */
-  pwaRegistarSW();
-
-  /* Verificar estado de rede inicial */
-  pwaAtualizarEstadoRede();
-
-  /* Ocultar splash após carregamento */
-  if (document.readyState === 'complete') {
-    pwaOcultarSplash();
-  } else {
-    window.addEventListener('load', pwaOcultarSplash);
-  }
-
-  /* Tratar shortcuts de URL */
-  pwaHandleStartupAction();
-
-  /* Log de ambiente */
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
-    || window.navigator.standalone === true;
-  if (isStandalone) {
-    console.log('[PWA] A correr em modo standalone (instalada)');
-  }
-})();
-
 
 </script>
 </body>

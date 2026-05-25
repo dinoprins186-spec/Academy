@@ -2697,155 +2697,157 @@ function _semanaKey(){
   const sem=Math.ceil(((j-new Date(Date.UTC(ano,0,1)))/86400000+1)/7);
   return `${ano}-W${sem}`;
 }
+/* ════════════════════════════════════════════════════════════
+   CREDITOS — Persistência remota via Supabase (profiles)
+   Leitura e escrita directas no Supabase.
+   Sem fallback local — plataforma requer ligação.
+════════════════════════════════════════════════════════════ */
 
-function getCreditos(){
-  const mes=new Date().toISOString().slice(0,7);
-  const dia=new Date().toISOString().slice(0,10);
-  const sem=_semanaKey();
-  let c=LS.g('creditos')||{
-    plano:'gratuito',plano_expiry:null,
-    mes,dia,sem,
-    pags:0,          /* págs geradas este mês (planos pro) */
-    gens_dia:0,      /* gerações hoje (gratuito) */
-    gens_sem:0,      /* gerações esta semana (gratuito) */
-    pags_mes_gr:0,   /* págs geradas este mês (gratuito) */
-    gens_mes_livro:0,/* livros gerados este mês (gratuito) */
-    pags_mes_livro:0,/* págs de livros geradas este mês (gratuito) */
-    credito_pags:0,  /* págs de crédito disponíveis */
-    credito_expiry:null,
-    pagos:[]
+/* Creditos em memória — evita leituras repetidas na mesma sessão */
+let _creditosCache = null;
+
+/* ── Estrutura base dos créditos ── */
+function _creditosBase() {
+  const mes = new Date().toISOString().slice(0,7);
+  const dia = new Date().toISOString().slice(0,10);
+  const sem = _semanaKey();
+  return {
+    plano: 'gratuito', plano_expiry: null,
+    credito_pags: 0,   credito_expiry: null,
+    pags_mes: 0,       gens_dia: 0,
+    gens_sem: 0,       pags_mes_gr: 0,
+    gens_mes_livro: 0, pags_mes_livro: 0,
+    mes_ref: mes, dia_ref: dia, sem_ref: sem
   };
-  /* ── Reset mensal ── */
-  if(c.mes!==mes){c.mes=mes;c.pags=0;c.pags_mes_gr=0;c.gens_mes_livro=0;c.pags_mes_livro=0;}
-  /* ── Reset semanal ── */
-  if(c.sem!==sem){c.sem=sem;c.gens_sem=0;}
-  /* ── Reset diário ── */
-  if(c.dia!==dia){c.dia=dia;c.gens_dia=0;}
-  /* ── Expirar créditos avulsos ── */
-  if(c.credito_expiry&&Date.now()>c.credito_expiry){c.credito_pags=0;c.credito_expiry=null;}
-  LS.s('creditos',c);
+}
+
+/* ── Aplicar resets temporais (mensal/semanal/diário) ── */
+function _aplicarResets(c) {
+  const mes = new Date().toISOString().slice(0,7);
+  const dia = new Date().toISOString().slice(0,10);
+  const sem = _semanaKey();
+  let alterado = false;
+  if (c.mes_ref !== mes) {
+    c.mes_ref = mes; c.pags_mes = 0; c.pags_mes_gr = 0;
+    c.gens_mes_livro = 0; c.pags_mes_livro = 0;
+    alterado = true;
+  }
+  if (c.sem_ref !== sem) { c.sem_ref = sem; c.gens_sem = 0; alterado = true; }
+  if (c.dia_ref !== dia) { c.dia_ref = dia; c.gens_dia = 0; alterado = true; }
+  if (c.credito_expiry && Date.now() > c.credito_expiry) {
+    c.credito_pags = 0; c.credito_expiry = null; alterado = true;
+  }
+  return alterado;
+}
+
+/* ── LER créditos do Supabase ── */
+async function getCreditos() {
+  /* Usar cache de sessão se disponível e recente */
+  if (_creditosCache) {
+    _aplicarResets(_creditosCache);
+    return _creditosCache;
+  }
+
+  const uid = sbUserId();
+
+  let r;
+  try {
+    r = await fetch(
+      `${SB_URL}/rest/v1/profiles?uid=eq.${uid}&limit=1`,
+      { headers: SB_H(), signal: AbortSignal.timeout(6000) }
+    );
+  } catch(e) {
+    console.error('[SB] getCreditos: sem ligação —', e.message);
+    mostrarToast('⚠ Sem ligação ao servidor. Verifica a tua internet.');
+    throw new Error('SB_OFFLINE');
+  }
+
+  if (!r.ok) {
+    console.error('[SB] getCreditos: erro HTTP', r.status);
+    mostrarToast('⚠ Erro ao carregar o teu saldo. Tenta novamente.');
+    throw new Error('SB_HTTP_ERROR');
+  }
+
+  const rows = await r.json();
+
+  let c;
+  if (!rows || rows.length === 0) {
+    /* Primeiro acesso — criar registo no Supabase */
+    c = _creditosBase();
+    await _sbCriarPerfil(uid, c);
+  } else {
+    c = rows[0];
+    /* Normalizar campos que podem vir nulos */
+    c.plano          = c.plano          || 'gratuito';
+    c.credito_pags   = c.credito_pags   || 0;
+    c.pags_mes       = c.pags_mes       || 0;
+    c.gens_dia       = c.gens_dia       || 0;
+    c.gens_sem       = c.gens_sem       || 0;
+    c.pags_mes_gr    = c.pags_mes_gr    || 0;
+    c.gens_mes_livro = c.gens_mes_livro || 0;
+    c.pags_mes_livro = c.pags_mes_livro || 0;
+  }
+
+  /* Aplicar resets temporais e re-guardar se necessário */
+  const resetou = _aplicarResets(c);
+  if (resetou) await _sbEscreverPerfil(uid, c);
+
+  _creditosCache = c;
   return c;
 }
-function setCreditos(c){LS.s('creditos',c);}
 
-/* ── Verificar se há crédito de páginas activo ── */
-function temCreditoActivo(){
-  const c=getCreditos();
-  return c.credito_pags>0&&c.credito_expiry&&Date.now()<c.credito_expiry;
-}
-function getCreditosPags(){
-  const c=getCreditos();
-  if(!temCreditoActivo())return 0;
-  return c.credito_pags||0;
+/* ── ESCREVER créditos no Supabase ── */
+async function setCreditos(c) {
+  _creditosCache = c; /* actualiza cache imediatamente */
+  const uid = sbUserId();
+  await _sbEscreverPerfil(uid, c);
 }
 
-function planoActivo(){
-  const c=getCreditos();
-  /* Verificar se plano pago expirou */
-  if(c.plano&&c.plano!=='gratuito'&&c.plano_expiry&&Date.now()>c.plano_expiry){
-    c.plano='gratuito';c.plano_expiry=null;setCreditos(c);
-  }
-  /* Normalizar planos antigos → gratuito (migração) */
-  const validos=['gratuito','estudante','grafica','premium'];
-  if(!validos.includes(c.plano))c.plano='gratuito';
-  return c.plano||'gratuito';
-}
-
-function verificarExportacao(numPags){
-  const plano=planoActivo();
-  const def=PLANOS_DEF[plano]||PLANOS_DEF.gratuito;
-  const c=getCreditos();
-
-  /* ── 1. Crédito de páginas activo (pacotes avulsos) ── */
-  if(temCreditoActivo()){
-    if(getCreditosPags()<numPags)return{ok:false,motivo:'credito_insuficiente',plano,c,numPags};
-    return{ok:true,wm:false};
-  }
-
-  /* ── 2. Plano Pro mensal ── */
-  if(plano!=='gratuito'){
-    if(c.pags+numPags>def.pags_mes)return{ok:false,motivo:'limite_mes',plano,c,numPags};
-    return{ok:true,wm:false};
-  }
-
-  /* ── 3. Plano Gratuito ── */
-  if(numPags>def.pags_gen)return{ok:false,motivo:'muitas_pags_gratuito',plano,c,numPags};
-  if(c.gens_dia>=def.gens_dia)return{ok:false,motivo:'limite_dia',plano,c,numPags};
-  if(c.gens_sem>=def.gens_sem)return{ok:false,motivo:'limite_semana',plano,c,numPags};
-  if(c.pags_mes_gr+numPags>def.pags_mes)return{ok:false,motivo:'limite_mes',plano,c,numPags};
-  return{ok:true,wm:true};
-}
-
-/* ── Verificar se pode gerar livro (plano gratuito) ── */
-function verificarLivro(numCaps){
-  const plano=planoActivo();
-  const def=PLANOS_DEF[plano]||PLANOS_DEF.gratuito;
-  if(plano!=='gratuito')return{ok:true};
-  if(temCreditoActivo())return{ok:true};
-  const c=getCreditos();
-  const pagsEstimadas=Math.ceil(numCaps*2); /* ~2 págs/capítulo */
-  if(numCaps>(def.livro_caps_max||5))
-    return{ok:false,motivo:'muitos_caps',plano,numCaps,max:def.livro_caps_max};
-  if((c.gens_mes_livro||0)>=(def.livro_gens_mes||2))
-    return{ok:false,motivo:'limite_mes_livro',plano,numCaps};
-  if((c.pags_mes_livro||0)+pagsEstimadas>(def.livro_pags_mes||12))
-    return{ok:false,motivo:'limite_pags_livro',plano,numCaps};
-  return{ok:true};
-}
-
-function registarGeracaoLivro(numCaps){
-  const c=getCreditos();
-  if(planoActivo()==='gratuito'&&!temCreditoActivo()){
-    c.gens_mes_livro=(c.gens_mes_livro||0)+1;
-    c.pags_mes_livro=(c.pags_mes_livro||0)+Math.ceil(numCaps*2);
-    setCreditos(c);
+/* ── Criar novo perfil (INSERT) ── */
+async function _sbCriarPerfil(uid, c) {
+  try {
+    await fetch(`${SB_URL}/rest/v1/profiles`, {
+      method: 'POST',
+      headers: { ...SB_H(), 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ uid, ...c, updated_at: new Date().toISOString() }),
+      signal: AbortSignal.timeout(6000)
+    });
+  } catch(e) {
+    console.warn('[SB] _sbCriarPerfil:', e.message);
   }
 }
 
-function registarExportacao(numPags,pago){
-  const c=getCreditos();
-  const plano=planoActivo();
-  if(temCreditoActivo()){
-    /* Descontar do crédito avulso */
-    c.credito_pags=Math.max(0,(c.credito_pags||0)-numPags);
-  } else if(plano==='gratuito'){
-    /* Contabilizar gerações gratuitas */
-    c.gens_dia=(c.gens_dia||0)+1;
-    c.gens_sem=(c.gens_sem||0)+1;
-    c.pags_mes_gr=(c.pags_mes_gr||0)+numPags;
-  } else {
-    /* Plano pro — contabilizar páginas do mês */
-    c.pags=(c.pags||0)+numPags;
+/* ── Actualizar perfil existente (PATCH/upsert) ── */
+async function _sbEscreverPerfil(uid, c) {
+  let r;
+  try {
+    r = await fetch(
+      `${SB_URL}/rest/v1/profiles?uid=eq.${uid}`,
+      {
+        method: 'PATCH',
+        headers: { ...SB_H(), 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+        body: JSON.stringify({ ...c, uid, updated_at: new Date().toISOString() }),
+        signal: AbortSignal.timeout(6000)
+      }
+    );
+  } catch(e) {
+    console.error('[SB] setCreditos: sem ligação —', e.message);
+    mostrarToast('⚠ Falha ao guardar o saldo. Verifica a tua internet.');
+    throw new Error('SB_OFFLINE');
   }
-  if(pago)c.pagos.push({data:new Date().toISOString(),pags:numPags,valor:pago});
-  setCreditos(c);
+
+  if (!r.ok) {
+    console.error('[SB] setCreditos: erro HTTP', r.status);
+    mostrarToast('⚠ Erro ao guardar o saldo. Tenta novamente.');
+    throw new Error('SB_HTTP_ERROR');
+  }
 }
 
-/* ── Activar plano Pro mensal após confirmação ── */
-function activarPlano(planoId,meses,redirect=true){
-  const c=getCreditos();
-  c.plano=planoId;
-  c.plano_expiry=Date.now()+(meses||1)*30*24*3600*1000;
-  c.pags=0; /* reset contador mensal do plano */
-  setCreditos(c);
-  mostrarToast(`✓ Plano ${PLANOS_DEF[planoId]?.n} activado!`);
-  if(redirect) irPara('inicio');
+/* ── Limpar cache ao trocar de utilizador ── */
+function _limparCacheCreditos() {
+  _creditosCache = null;
 }
 
-/* ── Activar pacote de crédito de páginas ── */
-function activarCredito(numPags,redirect=true){
-  const c=getCreditos();
-  c.credito_pags=(c.credito_pags||0)+numPags;
-  c.credito_expiry=Date.now()+30*24*3600*1000; /* 30 dias */
-  setCreditos(c);
-  mostrarToast(`✓ ${numPags} páginas de crédito activadas (válidas 30 dias)!`);
-  if(redirect) irPara('inicio');
-}
-
-/* ── Funções avulso removidas — substituídas por activarCredito() ── */
-
-
-const getDocs=()=>LS.l('docs');
 function addDoc(d){const l=getDocs();l.unshift({...d,id:Date.now(),em:new Date().toLocaleDateString('pt-PT'),secs:E.secs,plano:E.plano,est:E.est,cfg:{...E.cfg}});LS.s('docs',l.slice(0,30));}
 
 /* Auto-guardar estado actual — chamado em cada passo importante */

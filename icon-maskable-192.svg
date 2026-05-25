@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <!-- Maskable: background fills 100%, content in center 80% (safe zone) -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#111520"/>
+      <stop offset="100%" stop-color="#0C0E14"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#43E8A7"/>
+      <stop offset="100%" stop-color="#2BB57E"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Full bleed background — no rounded corners for maskable -->
+  <rect width="192" height="192" fill="url(#bg)"/>
+  <ellipse cx="96" cy="20" rx="80" ry="32" fill="rgba(67,232,167,0.06)"/>
+
+  <!-- Content constrained to safe zone (19px padding each side) -->
+  <!-- "A" scaled to fit in 154×154 centered area -->
+  <path d="M62 158 L96 72 L130 158" stroke="url(#accent)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none" filter="url(#glow)"/>
+  <line x1="75" y1="124" x2="117" y2="124" stroke="url(#accent)" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- Corner dot inside safe zone -->
+  <circle cx="138" cy="58" r="6" fill="#43E8A7" opacity="0.9"/>
+</svg>

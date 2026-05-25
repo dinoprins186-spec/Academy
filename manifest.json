@@ -1,0 +1,79 @@
+{
+  "name": "ACADEMY — Desempenho Académico",
+  "short_name": "ACADEMY",
+  "description": "A tua plataforma de geração académica com IA. Cria monografias, trabalhos e relatórios profissionais.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#0C0E14",
+  "background_color": "#0C0E14",
+  "lang": "pt",
+  "dir": "ltr",
+  "categories": ["education", "productivity", "utilities"],
+  "id": "academy-agea-2024",
+
+  "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-maskable-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+
+  "shortcuts": [
+    {
+      "name": "Novo Trabalho",
+      "short_name": "Criar",
+      "description": "Iniciar novo trabalho académico",
+      "url": "/?acao=criar",
+      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Novo Livro / E-book",
+      "short_name": "E-book",
+      "description": "Gerar livro ou e-book com IA",
+      "url": "/?acao=livro",
+      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Meus Documentos",
+      "short_name": "Documentos",
+      "description": "Ver documentos guardados",
+      "url": "/?acao=documentos",
+      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192" }]
+    }
+  ],
+
+  "screenshots": [
+    {
+      "src": "/icons/screenshot-mobile.svg",
+      "sizes": "390x844",
+      "type": "image/svg+xml",
+      "form_factor": "narrow",
+      "label": "ACADEMY — Gera o teu trabalho académico"
+    }
+  ],
+
+  "prefer_related_applications": false,
+  "edge_side_panel": { "preferred_width": 400 }
+}

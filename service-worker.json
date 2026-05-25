@@ -1,0 +1,189 @@
+/* ═══════════════════════════════════════════════════════════════
+   ACADEMY — Service Worker Premium v3.0
+   Grupo AGEA Comercial · CEO Adelino Graça
+   Estratégia: Shell (Cache-First) + API (Network-First) + Offline
+═══════════════════════════════════════════════════════════════ */
+
+const CACHE_VERSION = 'academy-v3';
+const SHELL_CACHE   = `${CACHE_VERSION}-shell`;
+const FONT_CACHE    = `${CACHE_VERSION}-fonts`;
+const IMG_CACHE     = `${CACHE_VERSION}-images`;
+
+/* Assets do shell — carregados imediatamente, servidos offline */
+const SHELL_ASSETS = [
+  '/',
+  '/manifest.json',
+  '/icons/icon-192.svg',
+  '/icons/icon-512.svg',
+  '/icons/icon-maskable-192.svg',
+  '/icons/icon-maskable-512.svg',
+];
+
+/* Fonts externas — cache separada, longa duração */
+const FONT_ORIGINS = [
+  'https://fonts.googleapis.com',
+  'https://fonts.gstatic.com',
+];
+
+/* CDN assets — cache separada */
+const CDN_ORIGINS = [
+  'https://cdnjs.cloudflare.com',
+  'https://cdn.jsdelivr.net',
+];
+
+/* URLs de API — NUNCA cache (sempre network) */
+const API_PATTERNS = [
+  /academy-engine/,
+  /openrouter/,
+  /vercel\.app\/api/,
+  /supabase\.co/,
+  /groq\.com/,
+];
+
+/* ── INSTALL ─────────────────────────────────────────────────── */
+self.addEventListener('install', (e) => {
+  e.waitUntil(
+    caches.open(SHELL_CACHE)
+      .then(cache => cache.addAll(SHELL_ASSETS))
+      .then(() => self.skipWaiting()) /* Activa imediatamente */
+  );
+});
+
+/* ── ACTIVATE — limpa caches antigas ────────────────────────── */
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(
+        keys
+          .filter(k => k.startsWith('academy-') && k !== SHELL_CACHE && k !== FONT_CACHE && k !== IMG_CACHE)
+          .map(k => caches.delete(k))
+      )
+    ).then(() => self.clients.claim()) /* Toma controlo imediato */
+  );
+});
+
+/* ── FETCH — estratégias por tipo de recurso ─────────────────── */
+self.addEventListener('fetch', (e) => {
+  const { request } = e;
+  const url = new URL(request.url);
+
+  /* 1. Ignorar: não-GET, chrome-extension, etc. */
+  if (request.method !== 'GET') return;
+  if (!['http:', 'https:'].includes(url.protocol)) return;
+
+  /* 2. API calls — SEMPRE network, sem fallback de cache */
+  if (API_PATTERNS.some(p => p.test(request.url))) {
+    e.respondWith(fetch(request));
+    return;
+  }
+
+  /* 3. Fontes Google — Cache-First, 1 ano */
+  if (FONT_ORIGINS.some(o => request.url.startsWith(o))) {
+    e.respondWith(cacheFirst(request, FONT_CACHE));
+    return;
+  }
+
+  /* 4. CDN libs — Cache-First, longa duração */
+  if (CDN_ORIGINS.some(o => request.url.startsWith(o))) {
+    e.respondWith(cacheFirst(request, SHELL_CACHE));
+    return;
+  }
+
+  /* 5. Shell (HTML, manifest, ícones) — Stale-While-Revalidate */
+  if (url.origin === self.location.origin) {
+    e.respondWith(staleWhileRevalidate(request));
+    return;
+  }
+
+  /* 6. Resto — network com fallback de cache */
+  e.respondWith(networkWithCacheFallback(request));
+});
+
+/* ── ESTRATÉGIAS DE CACHE ────────────────────────────────────── */
+
+/* Cache-First: serve cache, vai à rede só se não existe */
+async function cacheFirst(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  try {
+    const response = await fetch(request);
+    if (response.ok) cache.put(request, response.clone());
+    return response;
+  } catch {
+    return new Response('Offline', { status: 503 });
+  }
+}
+
+/* Stale-While-Revalidate: serve cache instantaneamente,
+   actualiza em background para próxima visita */
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(SHELL_CACHE);
+  const cached = await cache.match(request);
+
+  const networkPromise = fetch(request).then(response => {
+    if (response.ok) cache.put(request, response.clone());
+    return response;
+  }).catch(() => null);
+
+  return cached || await networkPromise || offlinePage();
+}
+
+/* Network-First com fallback de cache */
+async function networkWithCacheFallback(request) {
+  const cache = await caches.open(SHELL_CACHE);
+  try {
+    const response = await fetch(request);
+    if (response.ok) cache.put(request, response.clone());
+    return response;
+  } catch {
+    const cached = await cache.match(request);
+    return cached || offlinePage();
+  }
+}
+
+/* Página offline de fallback */
+function offlinePage() {
+  return new Response(`
+    <!DOCTYPE html>
+    <html lang="pt">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width,initial-scale=1"/>
+      <title>ACADEMY — Offline</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{background:#0C0E14;color:#F8FAFC;font-family:system-ui,sans-serif;
+             min-height:100vh;display:flex;flex-direction:column;align-items:center;
+             justify-content:center;gap:16px;padding:24px;text-align:center}
+        .icon{font-size:56px;margin-bottom:8px}
+        h1{font-size:22px;font-weight:700;letter-spacing:-.02em}
+        p{color:#64748B;font-size:14px;line-height:1.6;max-width:280px}
+        button{margin-top:8px;padding:12px 28px;background:#43E8A7;color:#0A0F1A;
+               border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}
+      </style>
+    </head>
+    <body>
+      <div class="icon">⚡</div>
+      <h1>Sem ligação</h1>
+      <p>Verifica a tua ligação à internet e tenta novamente.</p>
+      <button onclick="location.reload()">Tentar novamente</button>
+    </body>
+    </html>
+  `, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' }
+  });
+}
+
+/* ── MENSAGENS DO CLIENTE ────────────────────────────────────── */
+self.addEventListener('message', (e) => {
+  if (e.data?.action === 'skipWaiting') {
+    self.skipWaiting();
+  }
+
+  /* Limpar cache a pedido (ex: logout) */
+  if (e.data?.action === 'clearCache') {
+    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))));
+  }
+});

@@ -1,315 +1,366 @@
-// ═══════════════════════════════════════════════════════════════
-// ACADEMY ENGINE — FINAL STABLE VERSION
-// ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════════
+   ACADEMY — /api/engine  (Vercel Serverless Function)
+   Arquitectura: Frontend → /api/engine → switch(action) → funções internas
+   Provider de IA : OpenRouter (único — sem fallback, sem Groq)
+   Dados          : Supabase (save_history / get_history)
+   Acções         : chat | generate_lesson | save_history | get_history | get_stock
+   ─────────────────────────────────────────────────────────────────────
+   Variáveis de ambiente necessárias (Vercel → Settings → Environment):
+     OPENROUTER_API_KEY   — chave da API OpenRouter
+     SUPABASE_URL         — URL do projecto Supabase
+     SUPABASE_SERVICE_KEY — service_role key do Supabase
+═══════════════════════════════════════════════════════════════════════ */
 
-const OR_BASE = 'https://openrouter.ai/api/v1';
+/* ── Configuração OpenRouter ───────────────────────────────────────── */
+const OR_URL   = 'https://openrouter.ai/api/v1/chat/completions';
+const OR_MODEL = 'meta-llama/llama-3.3-70b-instruct';
+const OR_SITE  = 'https://academy.agea.ao';
+const OR_TITLE = 'ACADEMY — Grupo AGEA Comercial';
 
+/* ── Cabeçalhos CORS ───────────────────────────────────────────────── */
 const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Origin' : '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type'                : 'application/json',
 };
 
-// ═══════════════════════════════════════════════════════════════
-// MODELOS
-// ═══════════════════════════════════════════════════════════════
-
-const MODELS = {
-  chat: 'openai/gpt-4o-mini',
-  gerar_capitulo: 'anthropic/claude-3.5-sonnet',
-  create_work: 'anthropic/claude-3.5-sonnet',
-  plano_academico: 'openai/gpt-4o-mini',
-  estrutura_academica: 'openai/gpt-4o-mini',
-  default: 'openai/gpt-4o-mini',
-};
-
-function getModel(action) {
-  return MODELS[action] || MODELS.default;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// REFERER DINÂMICO
-// ═══════════════════════════════════════════════════════════════
-
-function getSiteUrl(req) {
-  const origin =
-    req.headers.origin ||
-    req.headers.referer ||
-    'https://academy.vercel.app';
-
-  return origin;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// SYSTEM PROMPT ACADÉMICO
-// ═══════════════════════════════════════════════════════════════
-
-const ACADEMIC_SYSTEM_PROMPT = `
-Você é um redator académico profissional especializado na criação de trabalhos universitários de alta qualidade.
-
-REGRAS OBRIGATÓRIAS DE FORMATAÇÃO:
-
-- Escreva SEMPRE em parágrafos densos e coesos.
-- Cada parágrafo deve conter entre 4 e 6 linhas de desenvolvimento.
-- Nunca escreva uma frase isolada como parágrafo.
-- Nunca quebre texto frase por frase.
-- Evite listas excessivas.
-- O texto deve parecer escrito por um académico humano experiente.
-- Utilize linguagem natural, formal e fluida.
-- As ideias devem conectar-se logicamente entre os parágrafos.
-- Não use emojis.
-- Não use markdown desnecessário.
-- Não use títulos repetitivos.
-- Não deixe linhas vazias excessivas.
-- Mantenha coerência, profundidade e continuidade argumentativa.
-- Desenvolva raciocínios completos.
-- Evite respostas superficiais.
-- Produza conteúdo detalhado, maduro e bem estruturado.
-
-OBJETIVO:
-Gerar conteúdo académico profissional, elegante e visualmente limpo.
-`;
-
-// ═══════════════════════════════════════════════════════════════
-// NORMALIZAÇÃO DE TEXTO
-// ═══════════════════════════════════════════════════════════════
-
-function normalizeText(text = '') {
-  return text
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/([^\n])\n([^\n])/g, '$1 $2')
-    .trim();
-}
-
-// ═══════════════════════════════════════════════════════════════
-// OPENROUTER
-// ═══════════════════════════════════════════════════════════════
-
-async function callOpenRouter({
-  messages,
-  model,
-  maxTokens = 4000,
-  temperature = 0.7,
-  siteUrl,
-}) {
-
-  const key = process.env.OPENROUTER_API_KEY;
-
-  if (!key) {
-    throw new Error('OPENROUTER_API_KEY não configurada');
-  }
-
-  // Timeout Protection
-  const controller = new AbortController();
-
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, 30000);
-
-  try {
-
-    const response = await fetch(`${OR_BASE}/chat/completions`, {
-      method: 'POST',
-      signal: controller.signal,
-
-      headers: {
-        'Authorization': `Bearer ${key}`,
-        'Content-Type': 'application/json',
-
-        // Referer Dinâmico
-        'HTTP-Referer': siteUrl,
-
-        'X-Title': 'ACADEMY',
-      },
-
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        temperature,
-
-        messages: [
-          {
-            role: 'system',
-            content: ACADEMIC_SYSTEM_PROMPT,
-          },
-          ...messages,
-        ],
-      }),
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      const err = await response.text();
-
-      console.error('OPENROUTER ERROR:', err);
-
-      throw new Error(`OpenRouter ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    const content =
-      data?.choices?.[0]?.message?.content || '';
-
-    return normalizeText(content);
-
-  } catch (err) {
-
-    console.error('CALL ERROR:', err);
-
-    if (err.name === 'AbortError') {
-      throw new Error('Timeout da IA');
-    }
-
-    throw err;
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// MAIN HANDLER
-// ═══════════════════════════════════════════════════════════════
-
+/* ════════════════════════════════════════════════════════════════════
+   ENTRY POINT
+═══════════════════════════════════════════════════════════════════ */
 export default async function handler(req, res) {
+  /* Preflight */
+  if (req.method === 'OPTIONS') {
+    return res.status(200).set(CORS).end();
+  }
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'Method not allowed' });
+  }
 
-  Object.entries(CORS).forEach(([k, v]) => {
-    res.setHeader(k, v);
+  Object.entries(CORS).forEach(([k, v]) => res.setHeader(k, v));
+
+  let body;
+  try {
+    body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  } catch {
+    return res.status(400).json({ ok: false, error: 'JSON inválido' });
+  }
+
+  const { action, payload = {} } = body;
+  if (!action) {
+    return res.status(400).json({ ok: false, error: 'action é obrigatório' });
+  }
+
+  /* ── Router central ──────────────────────────────────────────────── */
+  try {
+    switch (action) {
+
+      case 'chat':
+        return res.status(200).json(await actionChat(payload));
+
+      case 'generate_lesson':
+        return res.status(200).json(await actionGenerateLesson(payload));
+
+      case 'save_history':
+        return res.status(200).json(await actionSaveHistory(payload));
+
+      case 'get_history':
+        return res.status(200).json(await actionGetHistory(payload));
+
+      case 'get_stock':
+        return res.status(200).json(actionGetStock(payload));
+
+      /* ── Acções académicas legacy (mantidas por compatibilidade) ── */
+      case 'plano_academico':
+      case 'estrutura_academica':
+      case 'gerar_capitulo':
+      case 'gerar_capitulo_referencias':
+      case 'regenerar_capitulo':
+      case 'editar_texto':
+      case 'verificar_coerencia':
+      case 'gerar_capa':
+      case 'gerar_mea':
+      case 'mea_grafico':
+      case 'mea_tabela':
+      case 'mea_esquema':
+      case 'ping':
+        return res.status(200).json(await actionLegacy(action, payload));
+
+      default:
+        return res.status(400).json({ ok: false, error: `Acção desconhecida: ${action}` });
+    }
+  } catch (err) {
+    console.error(`[engine] ${action} falhou:`, err.message);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ACÇÃO: chat
+   Assistente académico conversacional via OpenRouter
+═══════════════════════════════════════════════════════════════════ */
+async function actionChat(payload) {
+  const { tema = '', tipoTrabalho = 'Trabalho Académico', historico = [], pedido } = payload;
+  if (!pedido) throw new Error('pedido é obrigatório para action=chat');
+
+  const system = `És o assistente académico ACADEMY. Respondes SEMPRE em português de Angola, formal e académico.
+Ajudas estudantes angolanos com os seus trabalhos académicos.
+Contexto actual: trabalho "${tema}" (${tipoTrabalho}).
+Sê conciso e directo — máx 200 palavras por resposta.`;
+
+  const messages = [
+    { role: 'system', content: system },
+    ...historico.slice(-6).map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content,
+    })),
+    { role: 'user', content: pedido },
+  ];
+
+  const resposta = await callOpenRouter(messages, { max_tokens: 1024, temperature: 0.7 });
+  return envelope('chat', { resposta });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ACÇÃO: generate_lesson
+   Gera conteúdo de uma lição/secção académica via OpenRouter
+═══════════════════════════════════════════════════════════════════ */
+async function actionGenerateLesson(payload) {
+  const {
+    tema, tipoTrabalho = 'Trabalho Académico', nivel = '',
+    capNum, capTitulo, capSubs = [], palavrasPorCap = 600,
+  } = payload;
+  if (!tema || !capTitulo) throw new Error('tema e capTitulo são obrigatórios para generate_lesson');
+
+  const subs = capSubs.join(', ');
+  const prompt = `Escreve o Capítulo ${capNum} — "${capTitulo}" para um ${tipoTrabalho} sobre "${tema}".
+Nível académico: ${nivel}.
+Subtópicos (usa como subtítulos numerados): ${subs}.
+Escreve ~${palavrasPorCap} palavras. Texto académico completo.
+REGRAS: cada parágrafo entre 50-70 palavras. Sem bullets, markdown ou asteriscos.
+Subtópicos como subtítulos numerados em linha separada. Português europeu/angolano.`;
+
+  const messages = [{ role: 'user', content: prompt }];
+  const resposta = await callOpenRouter(messages, { max_tokens: 8192, temperature: 0.7 });
+  return envelope('generate_lesson', { resposta });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ACÇÃO: save_history
+   Guarda uma entrada no histórico (Supabase)
+═══════════════════════════════════════════════════════════════════ */
+async function actionSaveHistory(payload) {
+  const { user_id, tipo, tema, pags, qual, metadata = {} } = payload;
+  if (!user_id) throw new Error('user_id é obrigatório para save_history');
+
+  const url  = process.env.SUPABASE_URL;
+  const key  = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) throw new Error('Supabase não configurado');
+
+  const resp = await fetch(`${url}/rest/v1/academy_history`, {
+    method : 'POST',
+    headers: {
+      'Content-Type' : 'application/json',
+      'apikey'       : key,
+      'Authorization': `Bearer ${key}`,
+      'Prefer'       : 'return=minimal',
+    },
+    body: JSON.stringify({ user_id, tipo, tema, pags, qual, metadata, created_at: new Date().toISOString() }),
   });
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Supabase insert falhou: ${err}`);
   }
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({
-      ok: false,
-      error: 'Method not allowed',
-    });
+  return envelope('save_history', { saved: true });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ACÇÃO: get_history
+   Obtém histórico de gerações do utilizador (Supabase)
+═══════════════════════════════════════════════════════════════════ */
+async function actionGetHistory(payload) {
+  const { user_id, limit = 20 } = payload;
+  if (!user_id) throw new Error('user_id é obrigatório para get_history');
+
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) throw new Error('Supabase não configurado');
+
+  const params = new URLSearchParams({
+    select  : '*',
+    user_id : `eq.${user_id}`,
+    order   : 'created_at.desc',
+    limit   : String(limit),
+  });
+
+  const resp = await fetch(`${url}/rest/v1/academy_history?${params}`, {
+    headers: {
+      'apikey'       : key,
+      'Authorization': `Bearer ${key}`,
+    },
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Supabase select falhou: ${err}`);
   }
 
-  try {
+  const rows = await resp.json();
+  return envelope('get_history', { rows });
+}
 
-    const { action, payload } = req.body || {};
+/* ═══════════════════════════════════════════════════════════════════
+   ACÇÃO: get_stock
+   Devolve stock/inventário — lógica simples sem IA
+═══════════════════════════════════════════════════════════════════ */
+function actionGetStock(payload) {
+  const { plano = 'gratuito' } = payload;
 
-    if (!action) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Action obrigatória',
-      });
-    }
+  /* Definição de stock por plano */
+  const STOCK = {
+    gratuito  : { pags_mes: 15,  gens_dia: 2,  gens_sem: 2  },
+    basico    : { pags_mes: 60,  gens_dia: 10, gens_sem: 40 },
+    estudante : { pags_mes: 120, gens_dia: 20, gens_sem: 80 },
+    pro       : { pags_mes: 300, gens_dia: 50, gens_sem: 200},
+  };
 
-    const model = getModel(action);
+  const stock = STOCK[plano] || STOCK.gratuito;
+  return envelope('get_stock', { plano, stock });
+}
 
-    const siteUrl = getSiteUrl(req);
-
-    let result = {};
-
-    // ═══════════════════════════════════════
-    // CHAT
-    // ═══════════════════════════════════════
-
-    if (action === 'chat') {
-
-      if (!payload?.pedido) {
-        return res.status(400).json({
-          ok: false,
-          error: 'Pedido inválido',
-        });
-      }
-
-      // Histórico limitado
-      const hist =
-        (payload.historico || []).slice(-3);
-
-      const content = await callOpenRouter({
-        model,
-        siteUrl,
-        maxTokens: 2500,
-        temperature: 0.7,
-
-        messages: [
-          ...hist,
-          {
-            role: 'user',
-            content: payload.pedido,
-          },
-        ],
-      });
-
-      result = {
-        resposta: content,
-      };
-    }
-
-    // ═══════════════════════════════════════
-    // GERAR CAPÍTULO
-    // ═══════════════════════════════════════
-
-    else if (action === 'gerar_capitulo') {
-
-      const prompt = `
-Tema: ${payload.tema}
-
-Capítulo:
-${payload.capTitulo}
-
-Nível académico:
-${payload.nivel}
-
-Escreve um capítulo académico completo,
-bem estruturado,
-profundo,
-com argumentação madura,
-e parágrafos densos.
-`;
-
-      const content = await callOpenRouter({
-        model,
-        siteUrl,
-        maxTokens: 5000,
-        temperature: 0.8,
-
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-      });
-
-      result = {
-        resposta: content,
-      };
-    }
-
-    // ═══════════════════════════════════════
-    // ACTION INVÁLIDA
-    // ═══════════════════════════════════════
-
-    else {
-
-      return res.status(400).json({
-        ok: false,
-        error: 'Action desconhecida',
-      });
-    }
-
-    return res.status(200).json({
-      ok: true,
-      data: result,
-
-      meta: {
-        model,
-      },
-    });
-
-  } catch (err) {
-
-    console.error('HANDLER ERROR:', err);
-
-    return res.status(500).json({
-      ok: false,
-      error: 'Erro interno do servidor',
-    });
+/* ═══════════════════════════════════════════════════════════════════
+   ACÇÃO LEGACY
+   Todas as acções académicas existentes — prompts construídos aqui
+═══════════════════════════════════════════════════════════════════ */
+async function actionLegacy(action, payload) {
+  if (action === 'ping') {
+    return envelope('ping', { resposta: 'pong' });
   }
+
+  const prompt = buildPrompt(action, payload);
+  const messages = [{ role: 'user', content: prompt }];
+
+  const isJson = ['plano_academico', 'estrutura_academica', 'verificar_coerencia',
+                  'gerar_mea', 'mea_grafico', 'mea_tabela', 'mea_esquema'].includes(action);
+
+  const raw = await callOpenRouter(messages, {
+    max_tokens  : 8192,
+    temperature : action === 'chat' ? 0.7 : 0.65,
+  });
+
+  let resposta = raw;
+  if (isJson) {
+    const clean = raw.replace(/```json|```/g, '').trim();
+    try { resposta = JSON.parse(clean); } catch { resposta = raw; }
+  }
+
+  return envelope(action, { resposta });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   HELPER: callOpenRouter
+   Única função que chama a API de IA — sem fallback, sem retries
+═══════════════════════════════════════════════════════════════════ */
+async function callOpenRouter(messages, opts = {}) {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error('OPENROUTER_API_KEY não configurada');
+
+  const resp = await fetch(OR_URL, {
+    method : 'POST',
+    headers: {
+      'Content-Type' : 'application/json',
+      'Authorization': `Bearer ${key}`,
+      'HTTP-Referer' : OR_SITE,
+      'X-Title'      : OR_TITLE,
+    },
+    body: JSON.stringify({
+      model      : OR_MODEL,
+      messages,
+      temperature: opts.temperature ?? 0.7,
+      max_tokens : opts.max_tokens  ?? 8192,
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `OpenRouter HTTP ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  if (data?.error) throw new Error(data.error.message || 'OpenRouter erro');
+
+  const text = data?.choices?.[0]?.message?.content || '';
+  if (!text) throw new Error('OpenRouter: resposta vazia');
+
+  return text;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   HELPER: buildPrompt
+   Constrói o prompt correcto para cada acção legacy
+═══════════════════════════════════════════════════════════════════ */
+function buildPrompt(action, payload) {
+  const LANG = 'Responde SEMPRE em português de Angola, formal e académico.';
+
+  switch (action) {
+    case 'plano_academico':
+      return `${LANG}\nCria um plano académico completo para um ${payload.tipoTrabalho} com o tema: "${payload.tema}".\nNível: ${payload.nivel}.\nResponde APENAS com JSON no formato:\n{"objetivo":"...","hipotese":"...","metodologia":"...","justificacao":"...","palavrasChave":["..."]}\nSem markdown, só JSON puro.`;
+
+    case 'estrutura_academica':
+      return `${LANG}\nCria a estrutura de capítulos para um ${payload.tipoTrabalho} com o tema: "${payload.tema}".\nNível: ${payload.nivel}. Páginas: ${payload.pags}. Número de capítulos: ${payload.numCaps || 5}.\nResponde APENAS com JSON no formato:\n{"capitulos":[{"num":1,"titulo":"...","subs":["1.1 ...","1.2 ..."]}]}\nSem markdown, só JSON puro.`;
+
+    case 'gerar_capitulo': {
+      const subs = (payload.capSubs || []).join(', ');
+      return `${LANG}\nEscreve o Capítulo ${payload.capNum} — "${payload.capTitulo}" para um ${payload.tipoTrabalho} sobre "${payload.tema}".\nNível: ${payload.nivel}.\nSubtópicos: ${subs}.\nEscreve ~${payload.palavrasPorCap || 600} palavras. Parágrafos de 50-70 palavras. Sem markdown. Subtópicos como subtítulos numerados. Português angolano.`;
+    }
+
+    case 'gerar_capitulo_referencias':
+      return `${LANG}\nCria a lista de Referências Bibliográficas para um ${payload.tipoTrabalho} sobre "${payload.tema}".\nNível: ${payload.nivel}. Formato APA 7.ª edição. Lista numerada. 8-14 referências. Sem prosa, sem markdown.`;
+
+    case 'regenerar_capitulo': {
+      const subs2 = (payload.capSubs || []).join(', ');
+      return `${LANG}\nReescreve completamente o Capítulo ${payload.capNum} — "${payload.capTitulo}" para um ${payload.tipoTrabalho} sobre "${payload.tema}".\nSubtópicos: ${subs2}. Parágrafos de 50-70 palavras. Sem markdown. Português angolano.`;
+    }
+
+    case 'editar_texto': {
+      const mapa = { melhorar: 'Melhora academicamente', expandir: 'Expande com mais detalhe', resumir: 'Resume mantendo os pontos essenciais', corrigir: 'Corrige erros e melhora' };
+      return `${LANG}\n${mapa[payload.subacao] || 'Melhora'} o seguinte texto académico:\n\n${payload.texto}\n\nResponde apenas com o texto melhorado, sem comentários.`;
+    }
+
+    case 'verificar_coerencia':
+      return `${LANG}\nVerifica a coerência académica entre o problema, objectivo, introdução e conclusão do trabalho.\nProblema: ${payload.problema}\nObjectivo: ${payload.objetivo}\nIntrodução (excerto): ${payload.introTexto}\nConclusão (excerto): ${payload.concTexto}\nResponde APENAS com JSON:\n{"coerente":true|false,"alertas":["..."],"sugestoes":["..."]}\nSem markdown, só JSON puro.`;
+
+    case 'gerar_capa':
+      return `${LANG}\nGera metadados para a capa de um ${payload.tipoTrabalho} sobre "${payload.tema}" de nível ${payload.nivel}.\nResponde APENAS com JSON: {"subtitulo":"...","palavrasChave":["..."]}\nSem markdown, só JSON puro.`;
+
+    case 'gerar_mea':
+      return `${LANG}\nDecide que elementos visuais (gráficos, tabelas, esquemas) enriqueceriam os seguintes capítulos:\n${JSON.stringify(payload.capitulos)}\nTema: "${payload.tema}".\nResponde APENAS com JSON:\n{"elementos":[{"tipo":"grafico"|"tabela"|"esquema","capitulo":1,"titulo":"..."}]}\nMáx 3 elementos. Só JSON puro.`;
+
+    case 'mea_grafico':
+      return `${LANG}\nGera dados para um gráfico de barras sobre "${payload.capTitulo}" do trabalho "${payload.tema}".\nResponde APENAS com JSON:\n{"titulo":"...","labels":["..."],"dados":[0],"unidade":"...","tipo":"bar"}\nSó JSON puro.`;
+
+    case 'mea_tabela':
+      return `${LANG}\nGera uma tabela comparativa sobre "${payload.capTitulo}" do trabalho "${payload.tema}".\nResponde APENAS com JSON:\n{"titulo":"...","cabecalhos":["..."],"linhas":[["..."]]}\nSó JSON puro.`;
+
+    case 'mea_esquema':
+      return `${LANG}\nGera um esquema de etapas sobre "${payload.capTitulo}" do trabalho "${payload.tema}".\nResponde APENAS com JSON:\n{"titulo":"...","etapas":[{"num":1,"titulo":"...","descricao":"..."}]}\nSó JSON puro.`;
+
+    default:
+      return `${LANG}\nResponde a esta questão académica:\n${JSON.stringify(payload)}`;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   HELPER: envelope
+   Envolve todas as respostas no contrato padrão
+═══════════════════════════════════════════════════════════════════ */
+function envelope(action, data) {
+  return {
+    ok    : true,
+    action,
+    data,
+    meta  : { ts: Date.now(), provider: 'openrouter' },
+  };
 }

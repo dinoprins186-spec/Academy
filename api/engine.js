@@ -1,23 +1,23 @@
-/* ═══════════════════════════════════════════════════════════════════════
-   ACADEMY — /api/engine  (Vercel Serverless Function)
-   Arquitectura: Frontend → /api/engine → switch(action) → funções internas
-   Provider de IA : OpenRouter (único — sem fallback, sem Groq)
+/* =======================================================================
+   ACADEMY - /api/engine  (Vercel Serverless Function)
+   Arquitectura: Frontend -> /api/engine -> switch(action) -> funções internas
+   Provider de IA : OpenRouter (único - sem fallback, sem Groq)
    Dados          : Supabase (save_history / get_history)
    Acções         : chat | generate_lesson | save_history | get_history | get_stock
-   ─────────────────────────────────────────────────────────────────────
-   Variáveis de ambiente necessárias (Vercel → Settings → Environment):
-     OPENROUTER_API_KEY   — chave da API OpenRouter
-     SUPABASE_URL         — URL do projecto Supabase
-     SUPABASE_SERVICE_KEY — service_role key do Supabase
-═══════════════════════════════════════════════════════════════════════ */
+   ---------------------------------------------------------------------
+   Variáveis de ambiente necessárias (Vercel -> Settings -> Environment):
+     OPENROUTER_API_KEY   - chave da API OpenRouter
+     SUPABASE_URL         - URL do projecto Supabase
+     SUPABASE_SERVICE_KEY - service_role key do Supabase
+======================================================================= */
 
-/* ── Configuração OpenRouter ───────────────────────────────────────── */
+/* -- Configuração OpenRouter ----------------------------------------- */
 const OR_URL   = 'https://openrouter.ai/api/v1/chat/completions';
 const OR_MODEL = 'meta-llama/llama-3.3-70b-instruct';
 const OR_SITE  = 'https://academy.agea.ao';
-const OR_TITLE = 'ACADEMY — Grupo AGEA Comercial';
+const OR_TITLE = 'ACADEMY - Grupo AGEA Comercial';
 
-/* ── Cabeçalhos CORS ───────────────────────────────────────────────── */
+/* -- Cabeçalhos CORS ------------------------------------------------- */
 const CORS = {
   'Access-Control-Allow-Origin' : '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -25,9 +25,9 @@ const CORS = {
   'Content-Type'                : 'application/json',
 };
 
-/* ════════════════════════════════════════════════════════════════════
+/* ====================================================================
    ENTRY POINT
-═══════════════════════════════════════════════════════════════════ */
+=================================================================== */
 export default async function handler(req, res) {
   /* Preflight */
   if (req.method === 'OPTIONS') {
@@ -51,7 +51,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ ok: false, error: 'action é obrigatório' });
   }
 
-  /* ── Router central ──────────────────────────────────────────────── */
+  /* -- Router central ------------------------------------------------ */
   try {
     switch (action) {
 
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
       case 'get_stock':
         return res.status(200).json(actionGetStock(payload));
 
-      /* ── Acções académicas legacy (mantidas por compatibilidade) ── */
+      /* -- Acções académicas legacy (mantidas por compatibilidade) -- */
       case 'plano_academico':
       case 'estrutura_academica':
       case 'gerar_capitulo':
@@ -95,10 +95,10 @@ export default async function handler(req, res) {
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════════
+/* ===================================================================
    ACÇÃO: chat
    Assistente académico conversacional via OpenRouter
-═══════════════════════════════════════════════════════════════════ */
+=================================================================== */
 async function actionChat(payload) {
   const { tema = '', tipoTrabalho = 'Trabalho Académico', historico = [], pedido } = payload;
   if (!pedido) throw new Error('pedido é obrigatório para action=chat');
@@ -106,7 +106,7 @@ async function actionChat(payload) {
   const system = `És o assistente académico ACADEMY. Respondes SEMPRE em português de Angola, formal e académico.
 Ajudas estudantes angolanos com os seus trabalhos académicos.
 Contexto actual: trabalho "${tema}" (${tipoTrabalho}).
-Sê conciso e directo — máx 200 palavras por resposta.`;
+Sê conciso e directo - máx 200 palavras por resposta.`;
 
   const messages = [
     { role: 'system', content: system },
@@ -121,10 +121,10 @@ Sê conciso e directo — máx 200 palavras por resposta.`;
   return envelope('chat', { resposta });
 }
 
-/* ═══════════════════════════════════════════════════════════════════
+/* ===================================================================
    ACÇÃO: generate_lesson
    Gera conteúdo de uma lição/secção académica via OpenRouter
-═══════════════════════════════════════════════════════════════════ */
+=================================================================== */
 async function actionGenerateLesson(payload) {
   const {
     tema, tipoTrabalho = 'Trabalho Académico', nivel = '',
@@ -133,7 +133,7 @@ async function actionGenerateLesson(payload) {
   if (!tema || !capTitulo) throw new Error('tema e capTitulo são obrigatórios para generate_lesson');
 
   const subs = capSubs.join(', ');
-  const prompt = `Escreve o Capítulo ${capNum} — "${capTitulo}" para um ${tipoTrabalho} sobre "${tema}".
+  const prompt = `Escreve o Capítulo ${capNum} - "${capTitulo}" para um ${tipoTrabalho} sobre "${tema}".
 Nível académico: ${nivel}.
 Subtópicos (usa como subtítulos numerados): ${subs}.
 Escreve ~${palavrasPorCap} palavras. Texto académico completo.
@@ -145,10 +145,10 @@ Subtópicos como subtítulos numerados em linha separada. Português europeu/ang
   return envelope('generate_lesson', { resposta });
 }
 
-/* ═══════════════════════════════════════════════════════════════════
+/* ===================================================================
    ACÇÃO: save_history
    Guarda uma entrada no histórico (Supabase)
-═══════════════════════════════════════════════════════════════════ */
+=================================================================== */
 async function actionSaveHistory(payload) {
   const { user_id, tipo, tema, pags, qual, metadata = {} } = payload;
   if (!user_id) throw new Error('user_id é obrigatório para save_history');
@@ -176,10 +176,10 @@ async function actionSaveHistory(payload) {
   return envelope('save_history', { saved: true });
 }
 
-/* ═══════════════════════════════════════════════════════════════════
+/* ===================================================================
    ACÇÃO: get_history
    Obtém histórico de gerações do utilizador (Supabase)
-═══════════════════════════════════════════════════════════════════ */
+=================================================================== */
 async function actionGetHistory(payload) {
   const { user_id, limit = 20 } = payload;
   if (!user_id) throw new Error('user_id é obrigatório para get_history');
@@ -211,10 +211,10 @@ async function actionGetHistory(payload) {
   return envelope('get_history', { rows });
 }
 
-/* ═══════════════════════════════════════════════════════════════════
+/* ===================================================================
    ACÇÃO: get_stock
-   Devolve stock/inventário — lógica simples sem IA
-═══════════════════════════════════════════════════════════════════ */
+   Devolve stock/inventário - lógica simples sem IA
+=================================================================== */
 function actionGetStock(payload) {
   const { plano = 'gratuito' } = payload;
 
@@ -230,10 +230,10 @@ function actionGetStock(payload) {
   return envelope('get_stock', { plano, stock });
 }
 
-/* ═══════════════════════════════════════════════════════════════════
+/* ===================================================================
    ACÇÃO LEGACY
-   Todas as acções académicas existentes — prompts construídos aqui
-═══════════════════════════════════════════════════════════════════ */
+   Todas as acções académicas existentes - prompts construídos aqui
+=================================================================== */
 async function actionLegacy(action, payload) {
   if (action === 'ping') {
     return envelope('ping', { resposta: 'pong' });
@@ -259,10 +259,10 @@ async function actionLegacy(action, payload) {
   return envelope(action, { resposta });
 }
 
-/* ═══════════════════════════════════════════════════════════════════
+/* ===================================================================
    HELPER: callOpenRouter
-   Única função que chama a API de IA — sem fallback, sem retries
-═══════════════════════════════════════════════════════════════════ */
+   Única função que chama a API de IA - sem fallback, sem retries
+=================================================================== */
 async function callOpenRouter(messages, opts = {}) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OPENROUTER_API_KEY não configurada');
@@ -297,10 +297,10 @@ async function callOpenRouter(messages, opts = {}) {
   return text;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
+/* ===================================================================
    HELPER: buildPrompt
    Constrói o prompt correcto para cada acção legacy
-═══════════════════════════════════════════════════════════════════ */
+=================================================================== */
 function buildPrompt(action, payload) {
   const LANG = 'Responde SEMPRE em português de Angola, formal e académico.';
 
@@ -313,7 +313,7 @@ function buildPrompt(action, payload) {
 
     case 'gerar_capitulo': {
       const subs = (payload.capSubs || []).join(', ');
-      return `${LANG}\nEscreve o Capítulo ${payload.capNum} — "${payload.capTitulo}" para um ${payload.tipoTrabalho} sobre "${payload.tema}".\nNível: ${payload.nivel}.\nSubtópicos: ${subs}.\nEscreve ~${payload.palavrasPorCap || 600} palavras. Parágrafos de 50-70 palavras. Sem markdown. Subtópicos como subtítulos numerados. Português angolano.`;
+      return `${LANG}\nEscreve o Capítulo ${payload.capNum} - "${payload.capTitulo}" para um ${payload.tipoTrabalho} sobre "${payload.tema}".\nNível: ${payload.nivel}.\nSubtópicos: ${subs}.\nEscreve ~${payload.palavrasPorCap || 600} palavras. Parágrafos de 50-70 palavras. Sem markdown. Subtópicos como subtítulos numerados. Português angolano.`;
     }
 
     case 'gerar_capitulo_referencias':
@@ -321,7 +321,7 @@ function buildPrompt(action, payload) {
 
     case 'regenerar_capitulo': {
       const subs2 = (payload.capSubs || []).join(', ');
-      return `${LANG}\nReescreve completamente o Capítulo ${payload.capNum} — "${payload.capTitulo}" para um ${payload.tipoTrabalho} sobre "${payload.tema}".\nSubtópicos: ${subs2}. Parágrafos de 50-70 palavras. Sem markdown. Português angolano.`;
+      return `${LANG}\nReescreve completamente o Capítulo ${payload.capNum} - "${payload.capTitulo}" para um ${payload.tipoTrabalho} sobre "${payload.tema}".\nSubtópicos: ${subs2}. Parágrafos de 50-70 palavras. Sem markdown. Português angolano.`;
     }
 
     case 'editar_texto': {
@@ -352,10 +352,10 @@ function buildPrompt(action, payload) {
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════════
+/* ===================================================================
    HELPER: envelope
    Envolve todas as respostas no contrato padrão
-═══════════════════════════════════════════════════════════════════ */
+=================================================================== */
 function envelope(action, data) {
   return {
     ok    : true,

@@ -1,20 +1,20 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// ACADEMY ENGINE — VERSÃO SIMPLES
-// Apenas chamadas ao OpenRouter, sem validações complexas
+// ACADEMY ENGINE — VERSÃO FINAL OTIMIZADA
 // ══════════════════════════════════════════════════════════════════════════════
 
 const OR_BASE = 'https://openrouter.ai/api/v1';
-const SITE_URL = process.env.ACADEMY_URL ?? 'https://academy.vercel.app';
+
+// Correção Dinâmica: Detecta a origem da chamada automaticamente
+const getSiteUrl = (req) => {
+  const origin = req.headers['origin'] || req.headers['referer'] || 'https://academy.vercel.app';
+  return origin;
+};
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
   'Access-Control-Allow-Headers': 'content-type, authorization',
 };
-
-// ══════════════════════════════════════════════════════════════════════════════
-// MODELOS POR ACTION
-// ══════════════════════════════════════════════════════════════════════════════
 
 const MODELS = {
   chat: 'openai/gpt-4o-mini',
@@ -29,22 +29,17 @@ function getModel(action) {
   return MODELS[action] || MODELS.default;
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// OPENROUTER CALL
-// ══════════════════════════════════════════════════════════════════════════════
-
-async function callOpenRouter(messages, model, maxTokens = 4096) {
+// Otimização: Função unificada com Referer dinâmico
+async function callOpenRouter(messages, model, maxTokens, siteUrl) {
   const key = process.env.OPENROUTER_API_KEY;
-  if (!key) {
-    throw new Error('OPENROUTER_API_KEY não configurada');
-  }
+  if (!key) throw new Error('OPENROUTER_API_KEY não configurada');
 
   const response = await fetch(`${OR_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${key}`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': SITE_URL,
+      'HTTP-Referer': siteUrl,
       'X-Title': 'ACADEMY',
     },
     body: JSON.stringify({
@@ -65,127 +60,37 @@ async function callOpenRouter(messages, model, maxTokens = 4096) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// RESPONSE ENVELOPE
-// ══════════════════════════════════════════════════════════════════════════════
-
-function ok(action, resposta, model) {
-  return {
-    ok: true,
-    action,
-    data: { resposta },
-    error: null,
-    meta: {
-      model,
-      timestamp: new Date().toISOString(),
-    },
-  };
-}
-
-function err(action, message) {
-  return {
-    ok: false,
-    action,
-    data: null,
-    error: message,
-    meta: {
-      timestamp: new Date().toISOString(),
-    },
-  };
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// ACTION HANDLERS
-// ══════════════════════════════════════════════════════════════════════════════
-
-async function hChat(payload) {
-  const { pedido } = payload;
-  if (!pedido) throw new Error('pedido obrigatório');
-
-  const content = await callOpenRouter(
-    [{ role: 'user', content: pedido }],
-    getModel('chat'),
-    3000
-  );
-
-  return { resposta: content };
-}
-
-async function hGerarCapitulo(payload) {
-  const { capTitulo, tema, nivel } = payload;
-  if (!capTitulo || !tema || !nivel) throw new Error('campos obrigatórios em falta');
-
-  const content = await callOpenRouter(
-    [
-      {
-        role: 'user',
-        content: `Escreve um capítulo académico sobre "${capTitulo}" no tema "${tema}" (nível: ${nivel}). ~600 palavras, português europeu formal.`,
-      },
-    ],
-    getModel('gerar_capitulo'),
-    8192
-  );
-
-  return { resposta: content };
-}
-
-async function hCreateWork(payload) {
-  const { topic } = payload;
-  if (!topic) throw new Error('topic obrigatória');
-
-  const content = await callOpenRouter(
-    [
-      {
-        role: 'user',
-        content: `Cria um trabalho académico completo sobre "${topic}". Estrutura: Introdução, Desenvolvimento, Conclusão, Referências (APA). Mínimo 800 palavras, português europeu.`,
-      },
-    ],
-    getModel('create_work'),
-    8192
-  );
-
-  return { resposta: content };
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
 // MAIN HANDLER
 // ══════════════════════════════════════════════════════════════════════════════
 
 export default async function handler(req, res) {
-  // CORS pre-flight
-  if (req.method === 'OPTIONS') {
-    return res.status(200).setHeader(CORS).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' }).setHeader(CORS);
-  }
+  if (req.method === 'OPTIONS') return res.status(200).setHeader(CORS).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' }).setHeader(CORS);
 
   try {
     const { action, payload } = req.body || {};
-
-    if (!action) {
-      return res.status(400).json(err('unknown', 'action obrigatória')).setHeader(CORS);
-    }
+    const siteUrl = getSiteUrl(req); // Origem dinâmica
 
     let result;
+    const model = getModel(action);
 
-    if (action === 'ping') {
-      result = { resposta: 'pong' };
-    } else if (action === 'chat') {
-      result = await hChat(payload || {});
-    } else if (action === 'gerar_capitulo') {
-      result = await hGerarCapitulo(payload || {});
-    } else if (action === 'create_work') {
-      result = await hCreateWork(payload || {});
-    } else {
-      return res.status(400).json(err(action, `action "${action}" desconhecida`)).setHeader(CORS);
+    if (action === 'chat') {
+      // Otimização: Historico limitado a 3 mensagens para economizar tokens
+      const hist = (payload.historico || []).slice(-3);
+      const content = await callOpenRouter([...hist, {role: 'user', content: payload.pedido}], model, 3000, siteUrl);
+      result = { resposta: content };
+    } 
+    else if (action === 'gerar_capitulo') {
+      const content = await callOpenRouter([{role: 'user', content: `Escreve capítulo sobre "${payload.capTitulo}" tema "${payload.tema}" (nível: ${payload.nivel}).`}], model, 8192, siteUrl);
+      result = { resposta: content };
+    }
+    else {
+      return res.status(400).json({ error: 'Action desconhecida' }).setHeader(CORS);
     }
 
-    const model = getModel(action);
-    return res.status(200).json(ok(action, result.resposta, model)).setHeader(CORS);
+    return res.status(200).json({ ok: true, data: result, meta: { model } }).setHeader(CORS);
 
   } catch (e) {
-    console.error('[ERROR]', e.message);
-    return res.status(500).json(err(req.body?.action || 'unknown', e.message)).setHeader(CORS);
+    return res.status(500).json({ ok: false, error: e.message }).setHeader(CORS);
   }
 }

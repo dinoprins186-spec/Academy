@@ -13,7 +13,7 @@
 
 /* -- Configuração OpenRouter ----------------------------------------- */
 const OR_URL   = 'https://openrouter.ai/api/v1/chat/completions';
-const OR_MODEL = 'meta-llama/llama-3.3-70b-instruct';
+const OR_MODEL = 'const OR_MODEL = 'openai/gpt-4o-mini';
 const OR_SITE  = 'https://academy.agea.ao';
 const OR_TITLE = 'ACADEMY - Grupo AGEA Comercial';
 

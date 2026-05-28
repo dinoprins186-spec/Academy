@@ -2,13 +2,11 @@
    ACADEMY - /api/engine (Vercel Serverless Function)
 ======================================================================= */
 
-/* -- OpenRouter Config ----------------------------------------------- */
 const OR_URL   = 'https://openrouter.ai/api/v1/chat/completions';
-const OR_MODEL = 'google/gemini-flash-1.5'; // ✅ melhor custo/benefício
+const OR_MODEL = 'google/gemini-flash-1.5';
 const OR_SITE  = 'https://academy.agea.ao';
 const OR_TITLE = 'ACADEMY - Grupo AGEA';
 
-/* -- CORS ------------------------------------------------------------ */
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -16,10 +14,8 @@ const CORS = {
   'Content-Type': 'application/json',
 };
 
-/* ==================================================================== */
 export default async function handler(req, res) {
 
-  // CORS preflight (CORRIGIDO)
   if (req.method === 'OPTIONS') {
     Object.entries(CORS).forEach(([k, v]) => res.setHeader(k, v));
     return res.status(200).end();
@@ -39,14 +35,13 @@ export default async function handler(req, res) {
   }
 
   const { action, payload = {} } = body;
+
   if (!action) {
     return res.status(400).json({ ok: false, error: 'action é obrigatório' });
   }
 
   try {
-
     switch (action) {
-
       case 'chat':
         return res.status(200).json(await chat(payload));
 
@@ -63,19 +58,14 @@ export default async function handler(req, res) {
   }
 }
 
-/* =================================================================== */
-/* CHAT */
-/* =================================================================== */
 async function chat(payload) {
-  const { pedido, tema = '', historico = [] } = payload;
+  const { pedido, historico = [] } = payload;
+
   if (!pedido) throw new Error('pedido é obrigatório');
 
   const messages = [
-    {
-      role: 'system',
-      content: `Assistente académico. Responde em português de Angola. Máx 200 palavras.`
-    },
-    ...Array.isArray(historico) ? historico.slice(-6) : [],
+    { role: 'system', content: 'Assistente académico. Português de Angola. Máx 200 palavras.' },
+    ...(Array.isArray(historico) ? historico.slice(-6) : []),
     { role: 'user', content: pedido }
   ];
 
@@ -87,26 +77,21 @@ async function chat(payload) {
   return { ok: true, action: 'chat', data: { resposta } };
 }
 
-/* =================================================================== */
-/* LESSON */
-/* =================================================================== */
 async function generateLesson(payload) {
   const { tema, capTitulo, capNum = 1, capSubs = [] } = payload;
 
-  if (!tema || !capTitulo) {
-    throw new Error('tema e capTitulo são obrigatórios');
-  }
+  if (!tema || !capTitulo) throw new Error('tema e capTitulo são obrigatórios');
 
   const prompt = `
-Escreve o Capítulo ${capNum} - "${capTitulo}" sobre "${tema}".
+Capítulo ${capNum} - "${capTitulo}" sobre "${tema}"
 
 Subtópicos:
 ${capSubs.join('\n')}
 
 Regras:
-- texto académico
+- académico
 - sem bullets
-- parágrafos 70-120 palavras
+- 70–120 palavras por parágrafo
 - português de Angola
 `;
 
@@ -120,13 +105,13 @@ Regras:
   return { ok: true, action: 'generate_lesson', data: { resposta } };
 }
 
-/* =================================================================== */
-/* OPENROUTER CORE */
-/* =================================================================== */
 async function callOpenRouter(messages, opts = {}) {
 
   const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error('OPENROUTER_API_KEY não configurada');
+
+  if (!key) {
+    throw new Error('OPENROUTER_API_KEY não configurada na Vercel');
+  }
 
   const resp = await fetch(OR_URL, {
     method: 'POST',
@@ -152,7 +137,10 @@ async function callOpenRouter(messages, opts = {}) {
   const data = await resp.json();
 
   const text = data?.choices?.[0]?.message?.content;
-  if (!text) throw new Error('Resposta vazia do modelo');
+
+  if (!text) {
+    throw new Error('Resposta vazia do modelo');
+  }
 
   return text;
 }

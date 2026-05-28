@@ -1,118 +1,104 @@
 /* =======================================================================
-   ACADEMY - /api/engine (PRODUÇÃO ESTÁVEL)
+   ACADEMY ENGINE - SAAS BLINDADO (PRODUÇÃO)
 ======================================================================= */
 
-/* ---------------- CONFIG OPENROUTER ---------------- */
+/* ---------------- OPENROUTER ---------------- */
 const OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-/* 🔥 MODELOS (ordem de custo/benefício) */
-const MODELS = {
-  primary: 'openai/gpt-4o-mini',                  // melhor custo/benefício
-  fast: 'meta-llama/llama-3.1-8b-instruct',       // fallback rápido
-  smart: 'anthropic/claude-3.5-sonnet'            // fallback qualidade
-};
+const MODELS = [
+  'openai/gpt-4o-mini',              // custo/benefício principal
+  'meta-llama/llama-3.1-8b-instruct',// fallback rápido
+  'anthropic/claude-3.5-sonnet'      // fallback inteligente
+];
 
 const OR_SITE  = 'https://academy.agea.ao';
-const OR_TITLE = 'ACADEMY - Grupo AGEA';
+const OR_TITLE = 'ACADEMY';
 
-/* ---------------- CORS ---------------- */
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Content-Type': 'application/json',
-};
+/* ---------------- RATE LIMIT (simples SaaS) ---------------- */
+const RATE = new Map(); // memória temporária (Vercel instance)
 
-/* ==================================================================== */
+function rateLimit(ip) {
+  const now = Date.now();
+  const windowMs = 60 * 1000; // 1 min
+  const maxReq = 20;
+
+  const data = RATE.get(ip) || { count: 0, start: now };
+
+  if (now - data.start > windowMs) {
+    RATE.set(ip, { count: 1, start: now });
+    return true;
+  }
+
+  if (data.count >= maxReq) return false;
+
+  data.count++;
+  RATE.set(ip, data);
+  return true;
+}
+
+/* ---------------- HANDLER ---------------- */
 export default async function handler(req, res) {
 
-  if (req.method === 'OPTIONS') {
-    Object.entries(CORS).forEach(([k, v]) => res.setHeader(k, v));
-    return res.status(200).end();
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json(error('METHOD_NOT_ALLOWED'));
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
-  }
+  const ip = req.headers['x-forwarded-for'] || 'unknown';
 
-  Object.entries(CORS).forEach(([k, v]) => res.setHeader(k, v));
+  if (!rateLimit(ip)) {
+    return res.status(429).json(error('RATE_LIMIT_EXCEEDED'));
+  }
 
   let body;
   try {
     body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
   } catch {
-    return res.status(400).json({ ok: false, error: 'JSON inválido' });
+    return res.status(400).json(error('INVALID_JSON'));
   }
 
-  const { action, payload = {} } = body;
-  if (!action) {
-    return res.status(400).json({ ok: false, error: 'action obrigatório' });
-  }
+  const action = normalizeAction(body?.action);
+  const payload = body?.payload || {};
 
   try {
 
     switch (action) {
 
       case 'chat':
-        return res.json(await chat(payload));
+        return res.json(success('chat', await chat(payload)));
 
       case 'generate_lesson':
-        return res.json(await generateLesson(payload));
+        return res.json(success('generate_lesson', await lesson(payload)));
 
       default:
-        return res.status(400).json({ ok: false, error: 'ação desconhecida' });
+        return res.status(400).json(error('UNKNOWN_ACTION', { action }));
     }
 
   } catch (err) {
     console.error('[ENGINE ERROR]', err);
-    return res.status(500).json({
-      ok: false,
-      error: 'Erro interno no servidor',
-      detail: err.message
-    });
+    return res.status(500).json(error('INTERNAL_ERROR', err.message));
   }
 }
 
-/* =================================================================== */
-/* CHAT */
-/* =================================================================== */
+/* ---------------- CHAT ---------------- */
 async function chat(payload) {
-  const { pedido, historico = [], tema = '' } = payload;
+  const { pedido, historico = [] } = payload;
 
-  if (!pedido) {
-    return { ok: false, error: 'pedido obrigatório' };
-  }
+  if (!pedido) throw new Error('pedido obrigatório');
 
   const messages = [
-    {
-      role: 'system',
-      content: `Assistente académico. Português de Angola. Máx 200 palavras.`
-    },
-    ...(Array.isArray(historico) ? historico.slice(-6) : []),
+    { role: 'system', content: 'Assistente académico. Português Angola. Máx 200 palavras.' },
+    ...historico.slice(-6),
     { role: 'user', content: pedido }
   ];
 
-  const resposta = await callWithFallback(messages, {
-    max_tokens: 800,
-    temperature: 0.7
-  });
-
-  return {
-    ok: true,
-    action: 'chat',
-    data: { resposta }
-  };
+  const resposta = await callWithFallback(messages, { max_tokens: 800 });
+  return { resposta };
 }
 
-/* =================================================================== */
-/* LESSON */
-/* =================================================================== */
-async function generateLesson(payload) {
+/* ---------------- LESSON ---------------- */
+async function lesson(payload) {
   const { tema, capTitulo, capNum = 1, capSubs = [] } = payload;
 
-  if (!tema || !capTitulo) {
-    return { ok: false, error: 'tema e capTitulo obrigatórios' };
-  }
+  if (!tema || !capTitulo) throw new Error('tema e capTitulo obrigatórios');
 
   const prompt = `
 Capítulo ${capNum} - ${capTitulo}
@@ -123,58 +109,41 @@ ${capSubs.join('\n')}
 
 Regras:
 - académico
-- português Angola
 - sem bullets
+- português Angola
 - 70-120 palavras por parágrafo
 `;
 
   const resposta = await callWithFallback([
     { role: 'user', content: prompt }
-  ], {
-    max_tokens: 1200,
-    temperature: 0.7
-  });
+  ], { max_tokens: 1200 });
 
-  return {
-    ok: true,
-    action: 'generate_lesson',
-    data: { resposta }
-  };
+  return { resposta };
 }
 
-/* =================================================================== */
-/* OPENROUTER COM FALLBACK REAL */
-/* =================================================================== */
+/* ---------------- OPENROUTER FALLBACK ---------------- */
 async function callWithFallback(messages, opts) {
-
-  const models = [
-    MODELS.primary,
-    MODELS.fast,
-    MODELS.smart
-  ];
 
   let lastError = null;
 
-  for (const model of models) {
+  for (const model of MODELS) {
     try {
-      const result = await callOpenRouter(model, messages, opts);
-      if (result && result.length > 10) return result;
+      const res = await callOpenRouter(model, messages, opts);
+      if (res && res.length > 20) return res;
     } catch (err) {
       lastError = err.message;
-      console.warn(`[MODEL FAIL] ${model}:`, err.message);
+      console.warn('[MODEL FAIL]', model, err.message);
     }
   }
 
-  throw new Error(`Todos os modelos falharam: ${lastError}`);
+  throw new Error('Todos os modelos falharam: ' + lastError);
 }
 
-/* =================================================================== */
-/* CORE OPENROUTER */
-/* =================================================================== */
+/* ---------------- CORE ---------------- */
 async function callOpenRouter(model, messages, opts) {
 
   const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error('OPENROUTER_API_KEY não configurada');
+  if (!key) throw new Error('API KEY missing');
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
@@ -199,17 +168,13 @@ async function callOpenRouter(model, messages, opts) {
     });
 
     if (!resp.ok) {
-      const err = await resp.text();
-      throw new Error(`HTTP ${resp.status}: ${err}`);
+      throw new Error(await resp.text());
     }
 
     const data = await resp.json();
-
     const text = data?.choices?.[0]?.message?.content;
 
-    if (!text) {
-      throw new Error('Resposta vazia do modelo');
-    }
+    if (!text) throw new Error('Empty response');
 
     return text;
 
@@ -217,3 +182,28 @@ async function callOpenRouter(model, messages, opts) {
     clearTimeout(timeout);
   }
 }
+
+/* ---------------- NORMALIZER ---------------- */
+function normalizeAction(action) {
+  const map = {
+    chat: 'chat',
+    message: 'chat',
+
+    generate_lesson: 'generate_lesson',
+    generate_work: 'generate_lesson',
+    create_work: 'generate_lesson',
+    lesson: 'generate_lesson',
+    criar_trabalho: 'generate_lesson'
+  };
+
+  return map[action] || action;
+}
+
+/* ---------------- RESPONSES ---------------- */
+function success(action, data) {
+  return { ok: true, action, data };
+}
+
+function error(code, detail = null) {
+  return { ok: false, error: code, detail };
+                                }

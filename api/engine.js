@@ -1,209 +1,442 @@
 /* =======================================================================
-   ACADEMY ENGINE - SAAS BLINDADO (PRODUÇÃO)
+   ACADEMY - /api/engine  (Vercel Serverless Function)
+   Arquitectura: Frontend -> /api/engine -> switch(action) -> funções internas
+   Provider de IA : OpenRouter (único - sem fallback, sem Groq)
+   Dados          : Supabase (save_history / get_history)
+   Acções         : chat | generate_lesson | save_history | get_history | get_stock
+   ---------------------------------------------------------------------
+   Variáveis de ambiente necessárias (Vercel -> Settings -> Environment):
+     OPENROUTER_API_KEY   - chave da API OpenRouter
+     SUPABASE_URL         - URL do projecto Supabase
+     SUPABASE_SERVICE_KEY - service_role key do Supabase
 ======================================================================= */
 
-/* ---------------- OPENROUTER ---------------- */
-const OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
-
-const MODELS = [
-  'openai/gpt-4o-mini',              // custo/benefício principal
-  'meta-llama/llama-3.1-8b-instruct',// fallback rápido
-  'anthropic/claude-3.5-sonnet'      // fallback inteligente
-];
-
+/* -- Configuração OpenRouter ----------------------------------------- */
+const OR_URL   = 'https://openrouter.ai/api/v1/chat/completions';
+const OR_MODEL = 'openai/gpt-4o-mini';
 const OR_SITE  = 'https://academy.agea.ao';
-const OR_TITLE = 'ACADEMY';
+const OR_TITLE = 'ACADEMY - Grupo AGEA Comercial';
 
-/* ---------------- RATE LIMIT (simples SaaS) ---------------- */
-const RATE = new Map(); // memória temporária (Vercel instance)
+/* -- Cabeçalhos CORS ------------------------------------------------- */
+const CORS = {
+  'Access-Control-Allow-Origin' : '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type'                : 'application/json',
+};
 
-function rateLimit(ip) {
-  const now = Date.now();
-  const windowMs = 60 * 1000; // 1 min
-  const maxReq = 20;
-
-  const data = RATE.get(ip) || { count: 0, start: now };
-
-  if (now - data.start > windowMs) {
-    RATE.set(ip, { count: 1, start: now });
-    return true;
-  }
-
-  if (data.count >= maxReq) return false;
-
-  data.count++;
-  RATE.set(ip, data);
-  return true;
-}
-
-/* ---------------- HANDLER ---------------- */
+/* ====================================================================
+   ENTRY POINT
+=================================================================== */
 export default async function handler(req, res) {
-
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json(error('METHOD_NOT_ALLOWED'));
-
-  const ip = req.headers['x-forwarded-for'] || 'unknown';
-
-  if (!rateLimit(ip)) {
-    return res.status(429).json(error('RATE_LIMIT_EXCEEDED'));
+  /* Preflight */
+  if (req.method === 'OPTIONS') {
+    return res.status(200).set(CORS).end();
   }
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'Method not allowed' });
+  }
+
+  Object.entries(CORS).forEach(([k, v]) => res.setHeader(k, v));
 
   let body;
   try {
     body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
   } catch {
-    return res.status(400).json(error('INVALID_JSON'));
+    return res.status(400).json({ ok: false, error: 'JSON inválido' });
   }
 
-  const action = normalizeAction(body?.action);
-  const payload = body?.payload || {};
+  const { action, payload = {} } = body;
+  if (!action) {
+    return res.status(400).json({ ok: false, error: 'action é obrigatório' });
+  }
 
+  /* -- Router central ------------------------------------------------ */
   try {
-
     switch (action) {
 
       case 'chat':
-        return res.json(success('chat', await chat(payload)));
+        return res.status(200).json(await actionChat(payload));
 
       case 'generate_lesson':
-        return res.json(success('generate_lesson', await lesson(payload)));
+        return res.status(200).json(await actionGenerateLesson(payload));
+
+      case 'save_history':
+        return res.status(200).json(await actionSaveHistory(payload));
+
+      case 'get_history':
+        return res.status(200).json(await actionGetHistory(payload));
+
+      case 'get_stock':
+        return res.status(200).json(actionGetStock(payload));
+
+      /* -- Acções académicas legacy (mantidas por compatibilidade) -- */
+      case 'plano_academico':
+      case 'estrutura_academica':
+      case 'gerar_capitulo':
+      case 'gerar_capitulo_referencias':
+      case 'regenerar_capitulo':
+      case 'editar_texto':
+      case 'verificar_coerencia':
+      case 'gerar_capa':
+      case 'gerar_mea':
+      case 'mea_grafico':
+      case 'mea_tabela':
+      case 'mea_esquema':
+      case 'ping':
+        return res.status(200).json(await actionLegacy(action, payload));
 
       default:
-        return res.status(400).json(error('UNKNOWN_ACTION', { action }));
+        return res.status(400).json({ ok: false, error: `Acção desconhecida: ${action}` });
     }
-
   } catch (err) {
-    console.error('[ENGINE ERROR]', err);
-    return res.status(500).json(error('INTERNAL_ERROR', err.message));
+    console.error(`[engine] ${action} falhou:`, err.message);
+    return res.status(500).json({ ok: false, error: err.message });
   }
 }
 
-/* ---------------- CHAT ---------------- */
-async function chat(payload) {
-  const { pedido, historico = [] } = payload;
+/* ===================================================================
+   ACÇÃO: chat
+   Assistente académico conversacional via OpenRouter
+=================================================================== */
+async function actionChat(payload) {
+  const { tema = '', tipoTrabalho = 'Trabalho Académico', historico = [], pedido } = payload;
+  if (!pedido) throw new Error('pedido é obrigatório para action=chat');
 
-  if (!pedido) throw new Error('pedido obrigatório');
+  const system = `És o assistente académico ACADEMY. Respondes SEMPRE em português de Angola, formal e académico.
+Ajudas estudantes angolanos com os seus trabalhos académicos.
+Contexto actual: trabalho "${tema}" (${tipoTrabalho}).
+Sê conciso e directo - máx 200 palavras por resposta.`;
 
   const messages = [
-    { role: 'system', content: 'Assistente académico. Português Angola. Máx 200 palavras.' },
-    ...historico.slice(-6),
-    { role: 'user', content: pedido }
+    { role: 'system', content: system },
+    ...historico.slice(-6).map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content,
+    })),
+    { role: 'user', content: pedido },
   ];
 
-  const resposta = await callWithFallback(messages, { max_tokens: 800 });
-  return { resposta };
+  const resposta = await callOpenRouter(messages, { max_tokens: 1024, temperature: 0.7 });
+  return envelope('chat', { resposta });
 }
 
-/* ---------------- LESSON ---------------- */
-async function lesson(payload) {
-  const { tema, capTitulo, capNum = 1, capSubs = [] } = payload;
+/* ===================================================================
+   ACÇÃO: generate_lesson
+   Gera conteúdo de uma lição/secção académica via OpenRouter
+=================================================================== */
+async function actionGenerateLesson(payload) {
+  const {
+    tema, tipoTrabalho = 'Trabalho Académico', nivel = '',
+    capNum, capTitulo, capSubs = [], palavrasPorCap = 600,
+  } = payload;
+  if (!tema || !capTitulo) throw new Error('tema e capTitulo são obrigatórios para generate_lesson');
 
-  if (!tema || !capTitulo) throw new Error('tema e capTitulo obrigatórios');
+  const subsFormatados = capSubs
+    .map((s, i) => `${capNum}.${i + 1} ${s}`)
+    .join('\n');
 
-  const prompt = `
-Capítulo ${capNum} - ${capTitulo}
-Tema: ${tema}
+  const prompt = `És um professor universitário angolano a escrever um capítulo para um ${tipoTrabalho} de nível ${nivel} sobre "${tema}".
 
-Subtópicos:
-${capSubs.join('\n')}
+CAPÍTULO A ESCREVER:
+Capítulo ${capNum} — ${capTitulo}
 
-Regras:
-- académico
-- sem bullets
-- português Angola
-- 70-120 palavras por parágrafo
-`;
+SUBTÓPICOS OBRIGATÓRIOS (usa exactamente esta numeração):
+${subsFormatados}
 
-  const resposta = await callWithFallback([
-    { role: 'user', content: prompt }
-  ], { max_tokens: 1200 });
+ESTRUTURA OBRIGATÓRIA PARA CADA SUBTÓPICO:
+Cada subtópico deve conter, pela seguinte ordem:
+1. Título do subtópico numerado (ex: ${capNum}.1 Nome do Subtópico) em linha própria e separada
+2. Parágrafo de contextualização (60-80 palavras) — enquadra o subtópico no tema geral
+3. Desenvolvimento teórico (2 a 3 parágrafos de 60-80 palavras cada) — conceitos, definições, argumentos académicos fundamentados
+4. Exemplo concreto introduzido obrigatoriamente com a expressão "A título de exemplo:" — mínimo 60 palavras, realista e relacionado com Angola ou África quando pertinente
+5. Parágrafo de síntese parcial (40-60 palavras) — encerra o subtópico com uma conclusão local
 
-  return { resposta };
+REGRAS DE FORMATAÇÃO:
+- O título do capítulo principal (Capítulo ${capNum} — ${capTitulo}) aparece no topo, em linha própria
+- Cada subtítulo numerado (${capNum}.1, ${capNum}.2, etc.) aparece em linha própria, separado por uma linha em branco antes e depois
+- Parágrafos separados por linha em branco
+- Sem bullets, sem listas com traços, sem asteriscos, sem markdown
+- Português formal angolano/europeu
+- Total do capítulo: aproximadamente ${palavrasPorCap} palavras
+
+Escreve o capítulo completo agora, sem introduções nem comentários.`;
+
+  const messages = [{ role: 'user', content: prompt }];
+  const resposta = await callOpenRouter(messages, { max_tokens: 8192, temperature: 0.65 });
+  return envelope('generate_lesson', { resposta });
 }
 
-/* ---------------- OPENROUTER FALLBACK ---------------- */
-async function callWithFallback(messages, opts) {
+/* ===================================================================
+   ACÇÃO: save_history
+   Guarda uma entrada no histórico (Supabase)
+=================================================================== */
+async function actionSaveHistory(payload) {
+  const { user_id, tipo, tema, pags, qual, metadata = {} } = payload;
+  if (!user_id) throw new Error('user_id é obrigatório para save_history');
 
-  let lastError = null;
+  const url  = process.env.SUPABASE_URL;
+  const key  = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) throw new Error('Supabase não configurado');
 
-  for (const model of MODELS) {
-    try {
-      const res = await callOpenRouter(model, messages, opts);
-      if (res && res.length > 20) return res;
-    } catch (err) {
-      lastError = err.message;
-      console.warn('[MODEL FAIL]', model, err.message);
-    }
+  const resp = await fetch(`${url}/rest/v1/academy_history`, {
+    method : 'POST',
+    headers: {
+      'Content-Type' : 'application/json',
+      'apikey'       : key,
+      'Authorization': `Bearer ${key}`,
+      'Prefer'       : 'return=minimal',
+    },
+    body: JSON.stringify({ user_id, tipo, tema, pags, qual, metadata, created_at: new Date().toISOString() }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Supabase insert falhou: ${err}`);
   }
 
-  throw new Error('Todos os modelos falharam: ' + lastError);
+  return envelope('save_history', { saved: true });
 }
 
-/* ---------------- CORE ---------------- */
-async function callOpenRouter(model, messages, opts) {
+/* ===================================================================
+   ACÇÃO: get_history
+   Obtém histórico de gerações do utilizador (Supabase)
+=================================================================== */
+async function actionGetHistory(payload) {
+  const { user_id, limit = 20 } = payload;
+  if (!user_id) throw new Error('user_id é obrigatório para get_history');
 
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error('API KEY missing');
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) throw new Error('Supabase não configurado');
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const params = new URLSearchParams({
+    select  : '*',
+    user_id : `eq.${user_id}`,
+    order   : 'created_at.desc',
+    limit   : String(limit),
+  });
 
-  try {
+  const resp = await fetch(`${url}/rest/v1/academy_history?${params}`, {
+    headers: {
+      'apikey'       : key,
+      'Authorization': `Bearer ${key}`,
+    },
+  });
 
-    const resp = await fetch(OR_URL, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${key}`,
-        'HTTP-Referer': OR_SITE,
-        'X-Title': OR_TITLE,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: opts?.temperature ?? 0.7,
-        max_tokens: opts?.max_tokens ?? 800,
-      }),
-    });
-
-    if (!resp.ok) {
-      throw new Error(await resp.text());
-    }
-
-    const data = await resp.json();
-    const text = data?.choices?.[0]?.message?.content;
-
-    if (!text) throw new Error('Empty response');
-
-    return text;
-
-  } finally {
-    clearTimeout(timeout);
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Supabase select falhou: ${err}`);
   }
+
+  const rows = await resp.json();
+  return envelope('get_history', { rows });
 }
 
-/* ---------------- NORMALIZER ---------------- */
-function normalizeAction(action) {
-  const map = {
-    chat: 'chat',
-    message: 'chat',
+/* ===================================================================
+   ACÇÃO: get_stock
+   Devolve stock/inventário - lógica simples sem IA
+=================================================================== */
+function actionGetStock(payload) {
+  const { plano = 'gratuito' } = payload;
 
-    generate_lesson: 'generate_lesson',
-    generate_work: 'generate_lesson',
-    create_work: 'generate_lesson',
-    lesson: 'generate_lesson',
-    criar_trabalho: 'generate_lesson'
+  const STOCK = {
+    gratuito  : { pags_mes: 15,  gens_dia: 2,  gens_sem: 2  },
+    basico    : { pags_mes: 60,  gens_dia: 10, gens_sem: 40 },
+    estudante : { pags_mes: 120, gens_dia: 20, gens_sem: 80 },
+    pro       : { pags_mes: 300, gens_dia: 50, gens_sem: 200},
   };
 
-  return map[action] || action;
+  const stock = STOCK[plano] || STOCK.gratuito;
+  return envelope('get_stock', { plano, stock });
 }
 
-/* ---------------- RESPONSES ---------------- */
-function success(action, data) {
-  return { ok: true, action, data };
+/* ===================================================================
+   ACÇÃO LEGACY
+   Todas as acções académicas existentes - prompts construídos aqui
+=================================================================== */
+async function actionLegacy(action, payload) {
+  if (action === 'ping') {
+    return envelope('ping', { resposta: 'pong' });
+  }
+
+  const prompt = buildPrompt(action, payload);
+  const messages = [{ role: 'user', content: prompt }];
+
+  const isJson = ['plano_academico', 'estrutura_academica', 'verificar_coerencia',
+                  'gerar_mea', 'mea_grafico', 'mea_tabela', 'mea_esquema'].includes(action);
+
+  const raw = await callOpenRouter(messages, {
+    max_tokens  : 8192,
+    temperature : action === 'chat' ? 0.7 : 0.65,
+  });
+
+  let resposta = raw;
+  if (isJson) {
+    const clean = raw.replace(/```json|```/g, '').trim();
+    try { resposta = JSON.parse(clean); } catch { resposta = raw; }
+  }
+
+  return envelope(action, { resposta });
 }
 
-function error(code, detail = null) {
-  return { ok: false, error: code, detail };
-                                }
+/* ===================================================================
+   HELPER: callOpenRouter
+   Única função que chama a API de IA
+=================================================================== */
+async function callOpenRouter(messages, opts = {}) {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error('OPENROUTER_API_KEY não configurada');
+
+  const resp = await fetch(OR_URL, {
+    method : 'POST',
+    headers: {
+      'Content-Type' : 'application/json',
+      'Authorization': `Bearer ${key}`,
+      'HTTP-Referer' : OR_SITE,
+      'X-Title'      : OR_TITLE,
+    },
+    body: JSON.stringify({
+      model      : OR_MODEL,
+      messages,
+      temperature: opts.temperature ?? 0.7,
+      max_tokens : opts.max_tokens  ?? 8192,
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `OpenRouter HTTP ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  if (data?.error) throw new Error(data.error.message || 'OpenRouter erro');
+
+  const text = data?.choices?.[0]?.message?.content || '';
+  if (!text) throw new Error('OpenRouter: resposta vazia');
+
+  return text;
+}
+
+/* ===================================================================
+   HELPER: buildPrompt
+   Constrói o prompt correcto para cada acção legacy
+=================================================================== */
+function buildPrompt(action, payload) {
+  const LANG = 'Respondes SEMPRE em português de Angola, formal e académico. És um professor universitário angolano experiente.';
+
+  switch (action) {
+    case 'plano_academico':
+      return `${LANG}\nCria um plano académico completo para um ${payload.tipoTrabalho} com o tema: "${payload.tema}".\nNível: ${payload.nivel}.\nResponde APENAS com JSON no formato:\n{"objetivo":"...","hipotese":"...","metodologia":"...","justificacao":"...","palavrasChave":["..."]}\nSem markdown, só JSON puro.`;
+
+    case 'estrutura_academica':
+      return `${LANG}\nCria a estrutura de capítulos para um ${payload.tipoTrabalho} com o tema: "${payload.tema}".\nNível: ${payload.nivel}. Páginas: ${payload.pags}. Número de capítulos: ${payload.numCaps || 5}.\nCada capítulo deve ter 3 a 5 subtópicos numerados (ex: 1.1, 1.2, 1.3).\nResponde APENAS com JSON no formato:\n{"capitulos":[{"num":1,"titulo":"...","subs":["1.1 ...","1.2 ..."]}]}\nSem markdown, só JSON puro.`;
+
+    case 'gerar_capitulo': {
+      const subsFormatados = (payload.capSubs || [])
+        .map((s, i) => `${payload.capNum}.${i + 1} ${s}`)
+        .join('\n');
+
+      const contextoPlano = [
+        payload.objetivo    ? `Objectivo do trabalho: ${payload.objetivo}` : '',
+        payload.hipotese    ? `Hipótese: ${payload.hipotese}`               : '',
+        payload.metodologia ? `Metodologia: ${payload.metodologia}`         : '',
+      ].filter(Boolean).join('\n');
+
+      return `${LANG}
+
+Escreve o Capítulo ${payload.capNum} — "${payload.capTitulo}" para um ${payload.tipoTrabalho} sobre "${payload.tema}".
+Nível académico: ${payload.nivel}.
+${contextoPlano ? `\nCONTEXTO DO TRABALHO:\n${contextoPlano}\n` : ''}
+SUBTÓPICOS OBRIGATÓRIOS (usa exactamente esta numeração):
+${subsFormatados}
+
+ESTRUTURA OBRIGATÓRIA PARA CADA SUBTÓPICO:
+Cada subtópico deve conter, pela seguinte ordem:
+1. Título do subtópico numerado (ex: ${payload.capNum}.1 Nome) em linha própria e separada
+2. Parágrafo de contextualização (60-80 palavras) — enquadra o subtópico no tema geral e no objectivo do trabalho
+3. Desenvolvimento teórico (2 a 3 parágrafos de 60-80 palavras cada) — conceitos, definições, argumentos académicos fundamentados com referência à hipótese e metodologia quando pertinente
+4. Exemplo concreto introduzido com "A título de exemplo:" — mínimo 60 palavras, realista e relacionado com Angola ou África quando pertinente
+5. Parágrafo de síntese parcial (40-60 palavras) — encerra o subtópico com uma conclusão local
+
+REGRAS DE FORMATAÇÃO:
+- Título do capítulo no topo, em linha própria
+- Cada subtítulo numerado em linha própria, separado por linha em branco antes e depois
+- Parágrafos separados por linha em branco
+- Sem bullets, sem traços, sem asteriscos, sem markdown
+- Total: aproximadamente ${payload.palavrasPorCap || 600} palavras
+
+Escreve o capítulo completo agora, sem introduções nem comentários.`;
+    }
+
+    case 'gerar_capitulo_referencias':
+      return `${LANG}\nCria a lista de Referências Bibliográficas para um ${payload.tipoTrabalho} sobre "${payload.tema}".\nNível: ${payload.nivel}. Formato APA 7.ª edição. Lista numerada de 8 a 14 referências. Inclui autores angolanos ou africanos quando pertinente. Sem prosa, sem markdown. Só a lista numerada.`;
+
+    case 'regenerar_capitulo': {
+      const subsFormatados2 = (payload.capSubs || [])
+        .map((s, i) => `${payload.capNum}.${i + 1} ${s}`)
+        .join('\n');
+
+      return `${LANG}
+
+Reescreve completamente o Capítulo ${payload.capNum} — "${payload.capTitulo}" para um ${payload.tipoTrabalho} sobre "${payload.tema}".
+
+SUBTÓPICOS OBRIGATÓRIOS:
+${subsFormatados2}
+
+ESTRUTURA OBRIGATÓRIA PARA CADA SUBTÓPICO:
+1. Título numerado em linha própria
+2. Parágrafo de contextualização (60-80 palavras)
+3. Desenvolvimento teórico (2 a 3 parágrafos de 60-80 palavras)
+4. Exemplo concreto introduzido com "A título de exemplo:" — mínimo 60 palavras
+5. Parágrafo de síntese parcial (40-60 palavras)
+
+Sem bullets, sem traços, sem asteriscos, sem markdown. Português angolano formal.
+Escreve o capítulo completo agora, sem introduções nem comentários.`;
+    }
+
+    case 'editar_texto': {
+      const mapa = {
+        melhorar: 'Melhora academicamente, tornando o texto mais rigoroso, coeso e formal',
+        expandir : 'Expande com mais detalhe teórico e exemplos concretos, mantendo o estilo académico',
+        resumir  : 'Resume mantendo os pontos essenciais e a coerência académica',
+        corrigir : 'Corrige erros gramaticais e ortográficos e melhora a fluência académica',
+      };
+      return `${LANG}\n${mapa[payload.subacao] || 'Melhora academicamente'} o seguinte texto:\n\n${payload.texto}\n\nResponde apenas com o texto melhorado, sem comentários ou introduções.`;
+    }
+
+    case 'verificar_coerencia':
+      return `${LANG}\nVerifica a coerência académica entre o problema, objectivo, introdução e conclusão do trabalho.\nProblema: ${payload.problema}\nObjectivo: ${payload.objetivo}\nIntrodução (excerto): ${payload.introTexto}\nConclusão (excerto): ${payload.concTexto}\nResponde APENAS com JSON:\n{"coerente":true|false,"alertas":["..."],"sugestoes":["..."]}\nSem markdown, só JSON puro.`;
+
+    case 'gerar_capa':
+      return `${LANG}\nGera metadados para a capa de um ${payload.tipoTrabalho} sobre "${payload.tema}" de nível ${payload.nivel}.\nResponde APENAS com JSON: {"subtitulo":"...","palavrasChave":["..."]}\nSem markdown, só JSON puro.`;
+
+    case 'gerar_mea':
+      return `${LANG}\nDecide que elementos visuais (gráficos, tabelas, esquemas) enriqueceriam os seguintes capítulos:\n${JSON.stringify(payload.capitulos)}\nTema: "${payload.tema}".\nResponde APENAS com JSON:\n{"elementos":[{"tipo":"grafico"|"tabela"|"esquema","capitulo":1,"titulo":"..."}]}\nMáx 3 elementos. Só JSON puro.`;
+
+    case 'mea_grafico':
+      return `${LANG}\nGera dados para um gráfico de barras sobre "${payload.capTitulo}" do trabalho "${payload.tema}".\nResponde APENAS com JSON:\n{"titulo":"...","labels":["..."],"dados":[0],"unidade":"...","tipo":"bar"}\nSó JSON puro.`;
+
+    case 'mea_tabela':
+      return `${LANG}\nGera uma tabela comparativa sobre "${payload.capTitulo}" do trabalho "${payload.tema}".\nResponde APENAS com JSON:\n{"titulo":"...","cabecalhos":["..."],"linhas":[["..."]]}\nSó JSON puro.`;
+
+    case 'mea_esquema':
+      return `${LANG}\nGera um esquema de etapas sobre "${payload.capTitulo}" do trabalho "${payload.tema}".\nResponde APENAS com JSON:\n{"titulo":"...","etapas":[{"num":1,"titulo":"...","descricao":"..."}]}\nSó JSON puro.`;
+
+    default:
+      return `${LANG}\nResponde a esta questão académica:\n${JSON.stringify(payload)}`;
+  }
+}
+
+/* ===================================================================
+   HELPER: envelope
+   Envolve todas as respostas no contrato padrão
+=================================================================== */
+function envelope(action, data) {
+  return {
+    ok    : true,
+    action,
+    data,
+    meta  : { ts: Date.now(), provider: 'openrouter' },
+  };
+}

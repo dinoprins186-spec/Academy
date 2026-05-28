@@ -13,7 +13,7 @@
 
 /* -- Configuração OpenRouter ----------------------------------------- */
 const OR_URL   = 'https://openrouter.ai/api/v1/chat/completions';
-const OR_MODEL = 'meta-llama/llama-3.3-70b-instruct';
+const OR_MODEL = 'google/gemini-flash-1.5';               // ← modelo estável OR
 const OR_SITE  = 'https://academy.agea.ao';
 const OR_TITLE = 'ACADEMY - Grupo AGEA Comercial';
 
@@ -100,13 +100,16 @@ export default async function handler(req, res) {
    Assistente académico conversacional via OpenRouter
 =================================================================== */
 async function actionChat(payload) {
-  const { tema = '', tipoTrabalho = 'Trabalho Académico', historico = [], pedido } = payload;
+  const { tema = '', tipoTrabalho = 'Trabalho Académico', nivel = 'universitário', historico = [], pedido } = payload;
   if (!pedido) throw new Error('pedido é obrigatório para action=chat');
 
-  const system = `És o assistente académico ACADEMY. Respondes SEMPRE em português de Angola, formal e académico.
-Ajudas estudantes angolanos com os seus trabalhos académicos.
-Contexto actual: trabalho "${tema}" (${tipoTrabalho}).
-Sê conciso e directo - máx 200 palavras por resposta.`;
+  const system = `És o motor académico oficial da plataforma ACADEMY do Grupo AGEA Comercial, liderado pelo CEO Adelino Graça.
+A tua função é apoiar estudantes angolanos na produção de trabalhos académicos de qualidade universitária premium.
+A escrita deve soar natural, académica e produzida por um estudante universitário experiente.
+Escreve de forma fluida, coerente e com profundidade analítica real.
+Varia as estruturas frásicas. Evita repetições, frases genéricas e padrões de escrita artificial.
+Contexto actual: trabalho "${tema}" (${tipoTrabalho}). Nível: ${nivel}.
+Sê conciso e directo — máx 200 palavras por resposta de chat.`;
 
   const messages = [
     { role: 'system', content: system },
@@ -117,7 +120,7 @@ Sê conciso e directo - máx 200 palavras por resposta.`;
     { role: 'user', content: pedido },
   ];
 
-  const resposta = await callOpenRouter(messages, { max_tokens: 1024, temperature: 0.7 });
+  const resposta = await callOpenRouter(messages, { max_tokens: 400, temperature: 0.65 }); // ← P1: chat instantâneo
   return envelope('chat', { resposta });
 }
 
@@ -129,26 +132,48 @@ async function actionGenerateLesson(payload) {
   const {
     tema, tipoTrabalho = 'Trabalho Académico', nivel = '',
     capNum, capTitulo, capSubs = [], palavrasPorCap = 600,
+    contextoAnterior = '',                                   // ← P3: anti-repetição entre capítulos
   } = payload;
   if (!tema || !capTitulo) throw new Error('tema e capTitulo são obrigatórios para generate_lesson');
 
-  const subs = capSubs.join(', ');
-  const prompt = `Escreve o Capítulo ${capNum} - "${capTitulo}" para um ${tipoTrabalho} sobre "${tema}".
+  const subs     = capSubs.map((s, i) => `${i + 1}. ${s}`).join('\n'); // ← P5: numerados
+  const ctxBloco = contextoAnterior
+    ? `CONTEXTO DOS CAPÍTULOS ANTERIORES:\n${contextoAnterior}\nEvita repetir conceitos já explicados. Mantém continuidade lógica e progressão académica natural.\n\n`
+    : '';
+
+  const prompt = `Escreve o Capítulo ${capNum} — "${capTitulo}" para um ${tipoTrabalho} sobre "${tema}".
+
 Nível académico: ${nivel}.
-Subtópicos (usa como subtítulos numerados): ${subs}.
-Escreve ~${palavrasPorCap} palavras. Texto académico completo.
-REGRAS: cada parágrafo entre 50-70 palavras. Sem bullets, markdown ou asteriscos.
-Subtópicos como subtítulos numerados em linha separada. Português europeu/angolano.`;
+
+${ctxBloco}Subtópicos obrigatórios (usa como subtítulos numerados):
+${subs}
+
+QUALIDADE ESPERADA:
+A escrita deve ser natural, académica e fluida — produzida por um estudante universitário experiente.
+Cada parágrafo desenvolve uma ideia central com profundidade analítica.
+As transições entre parágrafos devem ser suaves e logicamente encadeadas.
+Usa terminologia académica adequada ao nível ${nivel}.
+Desenvolve análise crítica sempre que o conteúdo o permita.
+
+ESTILO E NATURALIDADE:
+Varia naturalmente as estruturas frásicas e as expressões de transição.
+Evita padrões repetitivos como "É importante destacar", "Neste contexto", "Deste modo", "Portanto".
+Evita introduções artificiais como "Neste capítulo iremos abordar…".
+Evita frases genéricas, de enchimento ou sem conteúdo analítico real.
+Não inventes estatísticas, datas ou fontes.
+
+FORMATAÇÃO:
+Parágrafos entre 70 e 120 palavras.
+Texto corrido, sem bullets, markdown, asteriscos ou símbolos especiais.
+Subtítulos numerados em linha separada.
+
+Tamanho aproximado: ${palavrasPorCap} palavras.`;
 
   const messages = [{ role: 'user', content: prompt }];
-  const resposta = await callOpenRouter(messages, { max_tokens: 8192, temperature: 0.7 });
+  const resposta = await callOpenRouter(messages, { max_tokens: 1400, temperature: 0.65 }); // ← P1: 1400
   return envelope('generate_lesson', { resposta });
 }
 
-/* ===================================================================
-   ACÇÃO: save_history
-   Guarda uma entrada no histórico (Supabase)
-=================================================================== */
 async function actionSaveHistory(payload) {
   const { user_id, tipo, tema, pags, qual, metadata = {} } = payload;
   if (!user_id) throw new Error('user_id é obrigatório para save_history');
@@ -246,7 +271,7 @@ async function actionLegacy(action, payload) {
                   'gerar_mea', 'mea_grafico', 'mea_tabela', 'mea_esquema'].includes(action);
 
   const raw = await callOpenRouter(messages, {
-    max_tokens  : 8192,
+    max_tokens  : 1400,                                    // ← P1: legacy geração
     temperature : action === 'chat' ? 0.7 : 0.65,
   });
 
@@ -261,27 +286,45 @@ async function actionLegacy(action, payload) {
 
 /* ===================================================================
    HELPER: callOpenRouter
-   Única função que chama a API de IA - sem fallback, sem retries
+   Única função que chama a API de IA — 1 retry automático em 429/5xx
 =================================================================== */
-async function callOpenRouter(messages, opts = {}) {
+async function callOpenRouter(messages, opts = {}, _retry = true) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OPENROUTER_API_KEY não configurada');
 
-  const resp = await fetch(OR_URL, {
-    method : 'POST',
-    headers: {
-      'Content-Type' : 'application/json',
-      'Authorization': `Bearer ${key}`,
-      'HTTP-Referer' : OR_SITE,
-      'X-Title'      : OR_TITLE,
-    },
-    body: JSON.stringify({
-      model      : OR_MODEL,
-      messages,
-      temperature: opts.temperature ?? 0.7,
-      max_tokens : opts.max_tokens  ?? 8192,
-    }),
-  });
+  /* -- Timeout de 45s: evita requests eternos na Vercel --------------- */
+  const controller = new AbortController();
+  const timeout    = setTimeout(() => controller.abort(), 45000);
+
+  let resp;
+  try {
+    resp = await fetch(OR_URL, {
+      method : 'POST',
+      signal : controller.signal,
+      headers: {
+        'Content-Type' : 'application/json',
+        'Authorization': `Bearer ${key}`,
+        'HTTP-Referer' : OR_SITE,
+        'X-Title'      : OR_TITLE,
+      },
+      body: JSON.stringify({
+        model      : OR_MODEL,
+        messages,
+        temperature: opts.temperature ?? 0.65,
+        top_p      : opts.top_p       ?? 0.85,  // ← P6: qualidade Gemini
+        max_tokens : opts.max_tokens  ?? 1400,
+        provider   : { sort: 'latency' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  /* -- Retry automático 1x para 429 / 5xx ----------------------------- */
+  if (_retry && [429, 500, 502, 503, 504].includes(resp.status)) {   // ← P7
+    await new Promise(r => setTimeout(r, 1500));
+    return callOpenRouter(messages, opts, false);
+  }
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
@@ -292,6 +335,7 @@ async function callOpenRouter(messages, opts = {}) {
   if (data?.error) throw new Error(data.error.message || 'OpenRouter erro');
 
   const text = data?.choices?.[0]?.message?.content || '';
+  if (typeof text !== 'string') throw new Error('Formato inválido do modelo');
   if (!text) throw new Error('OpenRouter: resposta vazia');
 
   return text;
@@ -302,7 +346,11 @@ async function callOpenRouter(messages, opts = {}) {
    Constrói o prompt correcto para cada acção legacy
 =================================================================== */
 function buildPrompt(action, payload) {
-  const LANG = 'Responde SEMPRE em português de Angola, formal e académico.';
+  const LANG = `És o motor académico oficial da plataforma ACADEMY do Grupo AGEA Comercial.
+Escreves em português académico de Angola com escrita fluida, natural e universitária.
+A escrita deve soar produzida por um estudante universitário experiente.
+Evita padrões repetitivos como "É importante destacar", "Neste contexto", "Deste modo", "Portanto".
+Evita frases genéricas, de enchimento ou introduções artificiais.`;
 
   switch (action) {
     case 'plano_academico':

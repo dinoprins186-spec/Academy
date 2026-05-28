@@ -1,366 +1,258 @@
-/* =======================================================================
-   ACADEMY - /api/engine  (Vercel Serverless Function)
-   Arquitectura: Frontend -> /api/engine -> switch(action) -> funções internas
-   Provider de IA : OpenRouter (único - sem fallback, sem Groq)
-   Dados          : Supabase (save_history / get_history)
-   Acções         : chat | generate_lesson | save_history | get_history | get_stock
-   ---------------------------------------------------------------------
-   Variáveis de ambiente necessárias (Vercel -> Settings -> Environment):
-     OPENROUTER_API_KEY   - chave da API OpenRouter
-     SUPABASE_URL         - URL do projecto Supabase
-     SUPABASE_SERVICE_KEY - service_role key do Supabase
-======================================================================= */
+/* =========================================================
+   ACADEMY ENGINE ELITE v2.1
+   OpenRouter · Retry · Dual System Prompt · Produção
+   Grupo AGEA Comercial — Luanda, Angola
+========================================================= */
 
-/* -- Configuração OpenRouter ----------------------------------------- */
-const OR_URL   = 'https://openrouter.ai/api/v1/chat/completions';
-const OR_MODEL = 'meta-llama/llama-3.3-70b-instruct';
-const OR_SITE  = 'https://academy.agea.ao';
-const OR_TITLE = 'ACADEMY - Grupo AGEA Comercial';
+const OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-/* -- Cabeçalhos CORS ------------------------------------------------- */
-const CORS = {
-  'Access-Control-Allow-Origin' : '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Content-Type'                : 'application/json',
+/* ─────────────────────── MODELOS ─────────────────────── */
+const MODEL_MAP = {
+  chat:               'openai/gpt-4o-mini',
+  generate_lesson:    'anthropic/claude-3-5-sonnet-20241022',
+  gerar_capitulo:     'anthropic/claude-3-5-sonnet-20241022',
+  regenerar_capitulo: 'anthropic/claude-3-5-sonnet-20241022',
+  resumo:             'openai/gpt-4o-mini',
 };
 
-/* ====================================================================
-   ENTRY POINT
-=================================================================== */
-export default async function handler(req, res) {
-  /* Preflight */
-  if (req.method === 'OPTIONS') {
-    return res.status(200).set(CORS).end();
-  }
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
-  }
+const PARAMS_MAP = {
+  chat:               { temperature: 0.45, max_tokens: 800  },
+  generate_lesson:    { temperature: 0.72, max_tokens: 3200 },
+  gerar_capitulo:     { temperature: 0.72, max_tokens: 3200 },
+  regenerar_capitulo: { temperature: 0.68, max_tokens: 3200 },
+};
 
-  Object.entries(CORS).forEach(([k, v]) => res.setHeader(k, v));
+function getModel(action)  { return MODEL_MAP[action]  ?? 'openai/gpt-4o-mini'; }
+function getParams(action) { return PARAMS_MAP[action] ?? { temperature: 0.5, max_tokens: 1200 }; }
+
+/* ─────────────────────── SYSTEM PROMPTS ─────────────────────── */
+const SYSTEM_CHAT = `\
+És assistente académico ACADEMY.
+
+REGRAS:
+- Português de Angola
+- Máximo 120 palavras por resposta
+- Respostas directas, sem introduções longas
+- Foco em ajudar o estudante rapidamente
+- Proibido markdown, listas ou bullets`;
+
+const SYSTEM_ACADEMIC = `\
+És um assistente académico de elite.
+
+REGRAS ABSOLUTAS DE ESCRITA:
+- Língua: português de Angola, registo académico universitário
+- Parágrafos de 4 a 6 linhas contínuas (OBRIGATÓRIO)
+- Proibido: listas, bullets, numerações, tabelas, markdown de qualquer tipo
+- Proibido: títulos com hashtags ou asteriscos
+- Transições fluidas entre parágrafos
+- Tom: rigoroso, claro, nunca condescendente
+- Começa directamente com o desenvolvimento`;
+
+/* ─────────────────────── SANITIZAÇÃO ─────────────────────── */
+function sanitize(input = '') {
+  if (typeof input !== 'string') input = String(input);
+  return input
+    .replace(/[—–]/g, '-')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2026/g, '...')
+    .replace(/\r\n/g, '\n')
+    .trim()
+    .slice(0, 8000);
+}
+
+/* ─────────────────────── VALIDAÇÃO ─────────────────────── */
+function validatePayload(action, payload) {
+  const required = {
+    chat:               ['pedido'],
+    generate_lesson:    ['tema', 'capTitulo'],
+    gerar_capitulo:     ['tema', 'capTitulo'],
+    regenerar_capitulo: ['tema', 'capTitulo'],
+  };
+  const fields = required[action] ?? [];
+  for (const f of fields) {
+    if (!payload[f] || String(payload[f]).trim() === '') {
+      throw new Error(`Payload inválido: campo obrigatório ausente → "${f}"`);
+    }
+  }
+}
+
+/* ─────────────────────── ENTRY POINT ─────────────────────── */
+export default async function handler(req, res) {
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST')   return res.status(405).json({ ok: false, error: 'Método não permitido' });
 
   let body;
   try {
     body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
   } catch {
-    return res.status(400).json({ ok: false, error: 'JSON inválido' });
+    return res.status(400).json({ ok: false, error: 'JSON malformado' });
   }
 
   const { action, payload = {} } = body;
-  if (!action) {
-    return res.status(400).json({ ok: false, error: 'action é obrigatório' });
+
+  if (!action || typeof action !== 'string') {
+    return res.status(400).json({ ok: false, error: 'Campo "action" obrigatório' });
   }
 
-  /* -- Router central ------------------------------------------------ */
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const log = (level, msg, extra = {}) =>
+    console[level](`[ENGINE v2.1][${requestId}][${action}]`, msg, extra);
+
   try {
-    switch (action) {
+    validatePayload(action, payload);
 
-      case 'chat':
-        return res.status(200).json(await actionChat(payload));
+    const model  = getModel(action);
+    const params = getParams(action);
 
-      case 'generate_lesson':
-        return res.status(200).json(await actionGenerateLesson(payload));
+    log('info', 'Iniciando engine', { model, action });
 
-      case 'save_history':
-        return res.status(200).json(await actionSaveHistory(payload));
+    const result = await runEngine(action, payload, model, params);
 
-      case 'get_history':
-        return res.status(200).json(await actionGetHistory(payload));
+    return res.status(200).json({
+      ok: true,
+      action,
+      data: result,
+      meta: {
+        model,
+        requestId,
+        ts:     Date.now(),
+        engine: 'elite-v2.1',
+        chars:  result.length,
+      }
+    });
 
-      case 'get_stock':
-        return res.status(200).json(actionGetStock(payload));
-
-      /* -- Acções académicas legacy (mantidas por compatibilidade) -- */
-      case 'plano_academico':
-      case 'estrutura_academica':
-      case 'gerar_capitulo':
-      case 'gerar_capitulo_referencias':
-      case 'regenerar_capitulo':
-      case 'editar_texto':
-      case 'verificar_coerencia':
-      case 'gerar_capa':
-      case 'gerar_mea':
-      case 'mea_grafico':
-      case 'mea_tabela':
-      case 'mea_esquema':
-      case 'ping':
-        return res.status(200).json(await actionLegacy(action, payload));
-
-      default:
-        return res.status(400).json({ ok: false, error: `Acção desconhecida: ${action}` });
-    }
-  } catch (err) {
-    console.error(`[engine] ${action} falhou:`, err.message);
-    return res.status(500).json({ ok: false, error: err.message });
+  } catch (e) {
+    log('error', 'Falha no engine', { message: e.message });
+    return res.status(500).json({ ok: false, error: e.message, requestId });
   }
 }
 
-/* ===================================================================
-   ACÇÃO: chat
-   Assistente académico conversacional via OpenRouter
-=================================================================== */
-async function actionChat(payload) {
-  const { tema = '', tipoTrabalho = 'Trabalho Académico', historico = [], pedido } = payload;
-  if (!pedido) throw new Error('pedido é obrigatório para action=chat');
+/* ─────────────────────── ENGINE CORE ─────────────────────── */
+async function runEngine(action, payload, model, params) {
 
-  const system = `És o assistente académico ACADEMY. Respondes SEMPRE em português de Angola, formal e académico.
-Ajudas estudantes angolanos com os seus trabalhos académicos.
-Contexto actual: trabalho "${tema}" (${tipoTrabalho}).
-Sê conciso e directo - máx 200 palavras por resposta.`;
+  const system = action === 'chat' ? SYSTEM_CHAT : SYSTEM_ACADEMIC;
 
-  const messages = [
-    { role: 'system', content: system },
-    ...historico.slice(-6).map(m => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-    })),
-    { role: 'user', content: pedido },
-  ];
-
-  const resposta = await callOpenRouter(messages, { max_tokens: 1024, temperature: 0.7 });
-  return envelope('chat', { resposta });
-}
-
-/* ===================================================================
-   ACÇÃO: generate_lesson
-   Gera conteúdo de uma lição/secção académica via OpenRouter
-=================================================================== */
-async function actionGenerateLesson(payload) {
-  const {
-    tema, tipoTrabalho = 'Trabalho Académico', nivel = '',
-    capNum, capTitulo, capSubs = [], palavrasPorCap = 600,
-  } = payload;
-  if (!tema || !capTitulo) throw new Error('tema e capTitulo são obrigatórios para generate_lesson');
-
-  const subs = capSubs.join(', ');
-  const prompt = `Escreve o Capítulo ${capNum} - "${capTitulo}" para um ${tipoTrabalho} sobre "${tema}".
-Nível académico: ${nivel}.
-Subtópicos (usa como subtítulos numerados): ${subs}.
-Escreve ~${palavrasPorCap} palavras. Texto académico completo.
-REGRAS: cada parágrafo entre 50-70 palavras. Sem bullets, markdown ou asteriscos.
-Subtópicos como subtítulos numerados em linha separada. Português europeu/angolano.`;
-
-  const messages = [{ role: 'user', content: prompt }];
-  const resposta = await callOpenRouter(messages, { max_tokens: 8192, temperature: 0.7 });
-  return envelope('generate_lesson', { resposta });
-}
-
-/* ===================================================================
-   ACÇÃO: save_history
-   Guarda uma entrada no histórico (Supabase)
-=================================================================== */
-async function actionSaveHistory(payload) {
-  const { user_id, tipo, tema, pags, qual, metadata = {} } = payload;
-  if (!user_id) throw new Error('user_id é obrigatório para save_history');
-
-  const url  = process.env.SUPABASE_URL;
-  const key  = process.env.SUPABASE_SERVICE_KEY;
-  if (!url || !key) throw new Error('Supabase não configurado');
-
-  const resp = await fetch(`${url}/rest/v1/academy_history`, {
-    method : 'POST',
-    headers: {
-      'Content-Type' : 'application/json',
-      'apikey'       : key,
-      'Authorization': `Bearer ${key}`,
-      'Prefer'       : 'return=minimal',
-    },
-    body: JSON.stringify({ user_id, tipo, tema, pags, qual, metadata, created_at: new Date().toISOString() }),
-  });
-
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`Supabase insert falhou: ${err}`);
-  }
-
-  return envelope('save_history', { saved: true });
-}
-
-/* ===================================================================
-   ACÇÃO: get_history
-   Obtém histórico de gerações do utilizador (Supabase)
-=================================================================== */
-async function actionGetHistory(payload) {
-  const { user_id, limit = 20 } = payload;
-  if (!user_id) throw new Error('user_id é obrigatório para get_history');
-
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY;
-  if (!url || !key) throw new Error('Supabase não configurado');
-
-  const params = new URLSearchParams({
-    select  : '*',
-    user_id : `eq.${user_id}`,
-    order   : 'created_at.desc',
-    limit   : String(limit),
-  });
-
-  const resp = await fetch(`${url}/rest/v1/academy_history?${params}`, {
-    headers: {
-      'apikey'       : key,
-      'Authorization': `Bearer ${key}`,
-    },
-  });
-
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`Supabase select falhou: ${err}`);
-  }
-
-  const rows = await resp.json();
-  return envelope('get_history', { rows });
-}
-
-/* ===================================================================
-   ACÇÃO: get_stock
-   Devolve stock/inventário - lógica simples sem IA
-=================================================================== */
-function actionGetStock(payload) {
-  const { plano = 'gratuito' } = payload;
-
-  /* Definição de stock por plano */
-  const STOCK = {
-    gratuito  : { pags_mes: 15,  gens_dia: 2,  gens_sem: 2  },
-    basico    : { pags_mes: 60,  gens_dia: 10, gens_sem: 40 },
-    estudante : { pags_mes: 120, gens_dia: 20, gens_sem: 80 },
-    pro       : { pags_mes: 300, gens_dia: 50, gens_sem: 200},
-  };
-
-  const stock = STOCK[plano] || STOCK.gratuito;
-  return envelope('get_stock', { plano, stock });
-}
-
-/* ===================================================================
-   ACÇÃO LEGACY
-   Todas as acções académicas existentes - prompts construídos aqui
-=================================================================== */
-async function actionLegacy(action, payload) {
-  if (action === 'ping') {
-    return envelope('ping', { resposta: 'pong' });
-  }
-
-  const prompt = buildPrompt(action, payload);
-  const messages = [{ role: 'user', content: prompt }];
-
-  const isJson = ['plano_academico', 'estrutura_academica', 'verificar_coerencia',
-                  'gerar_mea', 'mea_grafico', 'mea_tabela', 'mea_esquema'].includes(action);
-
-  const raw = await callOpenRouter(messages, {
-    max_tokens  : 8192,
-    temperature : action === 'chat' ? 0.7 : 0.65,
-  });
-
-  let resposta = raw;
-  if (isJson) {
-    const clean = raw.replace(/```json|```/g, '').trim();
-    try { resposta = JSON.parse(clean); } catch { resposta = raw; }
-  }
-
-  return envelope(action, { resposta });
-}
-
-/* ===================================================================
-   HELPER: callOpenRouter
-   Única função que chama a API de IA - sem fallback, sem retries
-=================================================================== */
-async function callOpenRouter(messages, opts = {}) {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error('OPENROUTER_API_KEY não configurada');
-
-  const resp = await fetch(OR_URL, {
-    method : 'POST',
-    headers: {
-      'Content-Type' : 'application/json',
-      'Authorization': `Bearer ${key}`,
-      'HTTP-Referer' : OR_SITE,
-      'X-Title'      : OR_TITLE,
-    },
-    body: JSON.stringify({
-      model      : OR_MODEL,
-      messages,
-      temperature: opts.temperature ?? 0.7,
-      max_tokens : opts.max_tokens  ?? 8192,
-    }),
-  });
-
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `OpenRouter HTTP ${resp.status}`);
-  }
-
-  const data = await resp.json();
-  if (data?.error) throw new Error(data.error.message || 'OpenRouter erro');
-
-  const text = data?.choices?.[0]?.message?.content || '';
-  if (!text) throw new Error('OpenRouter: resposta vazia');
-
-  return text;
-}
-
-/* ===================================================================
-   HELPER: buildPrompt
-   Constrói o prompt correcto para cada acção legacy
-=================================================================== */
-function buildPrompt(action, payload) {
-  const LANG = 'Responde SEMPRE em português de Angola, formal e académico.';
+  let messages;
 
   switch (action) {
-    case 'plano_academico':
-      return `${LANG}\nCria um plano académico completo para um ${payload.tipoTrabalho} com o tema: "${payload.tema}".\nNível: ${payload.nivel}.\nResponde APENAS com JSON no formato:\n{"objetivo":"...","hipotese":"...","metodologia":"...","justificacao":"...","palavrasChave":["..."]}\nSem markdown, só JSON puro.`;
+    case 'chat':
+      messages = buildChat(payload, system);
+      break;
 
-    case 'estrutura_academica':
-      return `${LANG}\nCria a estrutura de capítulos para um ${payload.tipoTrabalho} com o tema: "${payload.tema}".\nNível: ${payload.nivel}. Páginas: ${payload.pags}. Número de capítulos: ${payload.numCaps || 5}.\nResponde APENAS com JSON no formato:\n{"capitulos":[{"num":1,"titulo":"...","subs":["1.1 ...","1.2 ..."]}]}\nSem markdown, só JSON puro.`;
-
-    case 'gerar_capitulo': {
-      const subs = (payload.capSubs || []).join(', ');
-      return `${LANG}\nEscreve o Capítulo ${payload.capNum} - "${payload.capTitulo}" para um ${payload.tipoTrabalho} sobre "${payload.tema}".\nNível: ${payload.nivel}.\nSubtópicos: ${subs}.\nEscreve ~${payload.palavrasPorCap || 600} palavras. Parágrafos de 50-70 palavras. Sem markdown. Subtópicos como subtítulos numerados. Português angolano.`;
-    }
-
-    case 'gerar_capitulo_referencias':
-      return `${LANG}\nCria a lista de Referências Bibliográficas para um ${payload.tipoTrabalho} sobre "${payload.tema}".\nNível: ${payload.nivel}. Formato APA 7.ª edição. Lista numerada. 8-14 referências. Sem prosa, sem markdown.`;
-
-    case 'regenerar_capitulo': {
-      const subs2 = (payload.capSubs || []).join(', ');
-      return `${LANG}\nReescreve completamente o Capítulo ${payload.capNum} - "${payload.capTitulo}" para um ${payload.tipoTrabalho} sobre "${payload.tema}".\nSubtópicos: ${subs2}. Parágrafos de 50-70 palavras. Sem markdown. Português angolano.`;
-    }
-
-    case 'editar_texto': {
-      const mapa = { melhorar: 'Melhora academicamente', expandir: 'Expande com mais detalhe', resumir: 'Resume mantendo os pontos essenciais', corrigir: 'Corrige erros e melhora' };
-      return `${LANG}\n${mapa[payload.subacao] || 'Melhora'} o seguinte texto académico:\n\n${payload.texto}\n\nResponde apenas com o texto melhorado, sem comentários.`;
-    }
-
-    case 'verificar_coerencia':
-      return `${LANG}\nVerifica a coerência académica entre o problema, objectivo, introdução e conclusão do trabalho.\nProblema: ${payload.problema}\nObjectivo: ${payload.objetivo}\nIntrodução (excerto): ${payload.introTexto}\nConclusão (excerto): ${payload.concTexto}\nResponde APENAS com JSON:\n{"coerente":true|false,"alertas":["..."],"sugestoes":["..."]}\nSem markdown, só JSON puro.`;
-
-    case 'gerar_capa':
-      return `${LANG}\nGera metadados para a capa de um ${payload.tipoTrabalho} sobre "${payload.tema}" de nível ${payload.nivel}.\nResponde APENAS com JSON: {"subtitulo":"...","palavrasChave":["..."]}\nSem markdown, só JSON puro.`;
-
-    case 'gerar_mea':
-      return `${LANG}\nDecide que elementos visuais (gráficos, tabelas, esquemas) enriqueceriam os seguintes capítulos:\n${JSON.stringify(payload.capitulos)}\nTema: "${payload.tema}".\nResponde APENAS com JSON:\n{"elementos":[{"tipo":"grafico"|"tabela"|"esquema","capitulo":1,"titulo":"..."}]}\nMáx 3 elementos. Só JSON puro.`;
-
-    case 'mea_grafico':
-      return `${LANG}\nGera dados para um gráfico de barras sobre "${payload.capTitulo}" do trabalho "${payload.tema}".\nResponde APENAS com JSON:\n{"titulo":"...","labels":["..."],"dados":[0],"unidade":"...","tipo":"bar"}\nSó JSON puro.`;
-
-    case 'mea_tabela':
-      return `${LANG}\nGera uma tabela comparativa sobre "${payload.capTitulo}" do trabalho "${payload.tema}".\nResponde APENAS com JSON:\n{"titulo":"...","cabecalhos":["..."],"linhas":[["..."]]}\nSó JSON puro.`;
-
-    case 'mea_esquema':
-      return `${LANG}\nGera um esquema de etapas sobre "${payload.capTitulo}" do trabalho "${payload.tema}".\nResponde APENAS com JSON:\n{"titulo":"...","etapas":[{"num":1,"titulo":"...","descricao":"..."}]}\nSó JSON puro.`;
+    case 'generate_lesson':
+    case 'gerar_capitulo':
+    case 'regenerar_capitulo':
+      messages = buildLesson(payload, system);
+      break;
 
     default:
-      return `${LANG}\nResponde a esta questão académica:\n${JSON.stringify(payload)}`;
+      messages = [{ role: 'user', content: sanitize(JSON.stringify(payload)) }];
   }
+
+  const text = await callOpenRouterWithRetry(messages, model, params);
+  return postProcess(text);
 }
 
-/* ===================================================================
-   HELPER: envelope
-   Envolve todas as respostas no contrato padrão
-=================================================================== */
-function envelope(action, data) {
-  return {
-    ok    : true,
-    action,
-    data,
-    meta  : { ts: Date.now(), provider: 'openrouter' },
-  };
+/* ─────────────────────── BUILDERS ─────────────────────── */
+function buildChat(payload, system) {
+  const history = Array.isArray(payload.historico)
+    ? payload.historico.slice(-6)
+    : [];
+
+  return [
+    { role: 'system', content: system },
+    ...history.map(m => ({
+      role:    m.role === 'assistant' ? 'assistant' : 'user',
+      content: sanitize(m.content),
+    })),
+    { role: 'user', content: sanitize(payload.pedido) },
+  ];
+}
+
+function buildLesson(payload, system) {
+  const context = payload.contextoAnterior
+    ? `\n\nContexto do capítulo anterior:\n${sanitize(payload.contextoAnterior).slice(0, 600)}`
+    : '';
+
+  return [
+    { role: 'system', content: system },
+    {
+      role: 'user',
+      content: sanitize(
+`Escreve um capítulo académico completo:
+
+Tema geral: ${payload.tema}
+Título do capítulo: ${payload.capTitulo}${context}
+
+Requisitos:
+- Texto corrido, sem títulos internos, sem listas
+- Mínimo de 5 parágrafos de 4 a 6 linhas cada
+- Estilo académico rigoroso, português de Angola`)
+    },
+  ];
+}
+
+/* ─────────────────────── OPENROUTER COM RETRY ─────────────────────── */
+async function callOpenRouterWithRetry(messages, model, params, maxRetries = 3) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await callOpenRouter(messages, model, params);
+    } catch (e) {
+      lastError = e;
+      const isRetryable = e.message.includes('429') || e.message.includes('502') || e.message.includes('503');
+      if (!isRetryable || attempt === maxRetries) break;
+
+      const delay = Math.min(400 * 2 ** attempt, 4000);
+      console.warn(`[ENGINE v2.1] Retry ${attempt}/${maxRetries} em ${delay}ms — ${e.message}`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+async function callOpenRouter(messages, model, params) {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error('OPENROUTER_API_KEY não configurada no ambiente');
+
+  const res = await fetch(OR_URL, {
+    method:  'POST',
+    headers: {
+      'Authorization': `Bearer ${key}`,
+      'Content-Type':  'application/json',
+      'X-Title':       'Academy Engine Elite',
+    },
+    body: JSON.stringify({ model, messages, ...params }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '(sem corpo)');
+    throw new Error(`OpenRouter ${res.status}: ${errBody}`);
+  }
+
+  const data = await res.json();
+  const content = data?.choices?.[0]?.message?.content ?? '';
+
+  if (!content) throw new Error('Resposta vazia do modelo');
+
+  return content;
+}
+
+/* ─────────────────────── POST PROCESS ─────────────────────── */
+function postProcess(text = '') {
+  return text
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/^[-•*]\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }

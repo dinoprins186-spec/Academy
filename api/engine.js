@@ -408,7 +408,7 @@ async function actionGenerateLesson(payload) {
   const tipoTrabalho   = sanitizeString(payload.tipoTrabalho || 'Trabalho Académico', 100);
   const nivel          = sanitizeString(payload.nivel || '', 80);
   const capNum         = parseInt(payload.capNum, 10) || 1;
-  const totalCaps      = parseInt(payload.totalCaps, 10) || 4;
+  const totalCaps      = parseInt(payload.totalCaps, 10) || parseInt(payload.totalPags, 10) || 4;
   const capTitulo      = sanitizeString(payload.capTitulo || '', 200);
   const palavrasPorCap = Math.min(Math.max(parseInt(payload.palavrasPorCap, 10) || 600, 200), 3000);
   const capSubs        = sanitizeStringArray(payload.capSubs, LIMITS.SUBS_MAX, 150);
@@ -494,4 +494,4 @@ async function actionSaveHistory(payload) {
   const user_id  = sanitizeString(payload.user_id || '', 200);
   const tipo     = sanitizeString(payload.tipo     || '', 100);
   const tema     = sanitizeString(payload.tema     || '', LIMITS.TEMA_MAX_LEN);
-  const pags     = typeof payload.pags === 'number' ?
+  const pags     =

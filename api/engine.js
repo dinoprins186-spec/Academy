@@ -186,9 +186,21 @@ async function doCapitulo(p) {
   const nivel    = (p.nivel||'').substring(0,80);
   const capNum   = parseInt(p.capNum)||1;
   const capTit   = (p.capTitulo||'').substring(0,200);
-  const totalCaps= parseInt(p.totalCaps)||parseInt(p.totalPags)||4;
+  const totalCaps= parseInt(p.totalCaps)||4;
   const capSubs  = (Array.isArray(p.capSubs)?p.capSubs:[]).slice(0,8).map(s=>String(s).substring(0,150));
-  const palavras = Math.min(Math.max(parseInt(p.palavrasPorCap)||400, 150), 2000);
+
+  /* v63: cálculo de palavras baseado em páginas pedidas
+     Fórmula: (págs pedidas - 2 fixas) × 370 palavras ÷ nº capítulos
+     Mínimo 150, máximo 2000 por capítulo */
+  const PALAVRAS_POR_PAGINA = 370;
+  const PAGINAS_FIXAS = 2; /* capa + índice */
+  const totalPags = parseInt(p.totalPags) || 15;
+  const paginasConteudo = Math.max(totalPags - PAGINAS_FIXAS, 1);
+  const palavrasCalculadas = Math.round((paginasConteudo * PALAVRAS_POR_PAGINA) / totalCaps);
+  const palavras = Math.min(Math.max(
+    parseInt(p.palavrasPorCap) || palavrasCalculadas,
+    150
+  ), 2000);
 
   if (!tema || !capTit) throw new Error('tema e capTitulo obrigatórios');
 

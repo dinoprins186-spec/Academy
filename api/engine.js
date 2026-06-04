@@ -2,12 +2,11 @@
    ACADEMY — /api/engine  (Vercel Serverless Function)
    Versão: SaaS-Hardened v2.2 — Academic Intelligence
    
-   v2.2 — Fixes de calibração de páginas:
-   ─ palavrasPorCap: default 600→calculado por pagsRef, máximo reduzido 3000→2000
-   ─ Prompt: "aproximadamente" → "EXACTAMENTE — não mais nem menos"
-   ─ Estrutura por subtópico: 2-3 parágrafos calibrados ao alvo, não fixos
-   ─ Pools A/B/C/D expandidos (igual ao frontend v59)
-   ─ TUDO O RESTO INALTERADO do v2.1
+   v2.2 — Fixes cirúrgicos (base: v2.1 inalterada):
+   ─ palavrasPorCap: máximo 3000→2000, default calculado por pagsRef×220
+   ─ Prompt: "aproximadamente" → "EXACTAMENTE — PÁRA quando atingires N palavras"
+   ─ Pools A/B/C/D expandidos (15/11/12/14 entradas)
+   ─ TUDO O RESTO DO v2.1 INALTERADO
 ======================================================================= */
 
 /* ── Configuração OpenRouter ────────────────────────────────────────── */
@@ -57,10 +56,12 @@ function sendError(res, status, action, message, meta = {}) {
 }
 
 /* ====================================================================
-   v2.2 — POOLS EXPANDIDOS (sincronizados com frontend v59)
+   v2.1 — SISTEMA ANTI-DETECÇÃO IA
+   Pools de variação linguística académica.
+   Usados nos prompts de gerar_capitulo e generate_lesson.
 ==================================================================== */
 
-/* Pool A: prefixos de exemplo */
+/* Pool A: prefixos de exemplo — rotação por número de capítulo */
 const EXEMPLO_PREFIXOS = [
   'A título de exemplo,',
   'Por exemplo,',
@@ -146,8 +147,9 @@ function calcularPosicaoTese(capNum, totalCaps) {
   return 'conclusao';
 }
 
+/* Gera bloco de instruções anti-IA para injectar no prompt */
 function gerarInstrucaoAntiIA(capNum, totalCaps, instrucaoVariacao, instrucaoInteligencia, instrucaoRaciocinio) {
-  const n       = (capNum || 1) - 1;
+  const n       = (capNum || 1) - 1; /* 0-indexed para módulo */
   const prefixo = EXEMPLO_PREFIXOS[n % EXEMPLO_PREFIXOS.length];
   const hipotese= HIPOTESE_VARIACOES[n % HIPOTESE_VARIACOES.length];
   const concl   = CONCLUSAO_CONECTORES[(n + 2) % CONCLUSAO_CONECTORES.length];
@@ -155,6 +157,7 @@ function gerarInstrucaoAntiIA(capNum, totalCaps, instrucaoVariacao, instrucaoInt
   const posicao = calcularPosicaoTese(capNum, totalCaps || 4);
   const missao  = PROGRESSAO_TESE[posicao];
 
+  /* Construir bloco de instruções base */
   const base = `
 REGRAS OBRIGATÓRIAS DE ESTILO ACADÉMICO — APLICAR RIGOROSAMENTE:
 
@@ -180,6 +183,7 @@ PROFUNDIDADE INTELECTUAL OBRIGATÓRIA:
 - PROIBIDO: definição atrás de definição sem análise
 - PROIBIDO: enumeração mecânica de pontos sem desenvolvimento`;
 
+  /* Acrescentar instruções do frontend se existirem */
   const extras = [
     instrucaoVariacao      ? `\nINSTRUÇÕES ADICIONAIS DE VARIAÇÃO:\n${instrucaoVariacao}`       : '',
     instrucaoInteligencia  ? `\nMEMÓRIA E CONTEXTO DO DOCUMENTO:\n${instrucaoInteligencia}`     : '',
@@ -412,7 +416,7 @@ Sê conciso e directo - máx 200 palavras por resposta.`;
 }
 
 /* ====================================================================
-   ACÇÃO: generate_lesson — v2.2 COM CALIBRAÇÃO DE PÁGINAS
+   ACÇÃO: generate_lesson — v2.1 COM ANTI-DETECÇÃO IA
 ==================================================================== */
 async function actionGenerateLesson(payload) {
   const tema           = sanitizeString(payload.tema || '', LIMITS.TEMA_MAX_LEN);
@@ -421,14 +425,9 @@ async function actionGenerateLesson(payload) {
   const capNum         = parseInt(payload.capNum, 10) || 1;
   const totalCaps      = parseInt(payload.totalCaps, 10) || parseInt(payload.totalPags, 10) || 4;
   const capTitulo      = sanitizeString(payload.capTitulo || '', 200);
+  /* v2.2: calibração correcta — máx 2000 para evitar overflow de páginas */
+  const palavrasPorCap = Math.min(Math.max(parseInt(payload.palavrasPorCap, 10) || 500, 200), 2000);
   const capSubs        = sanitizeStringArray(payload.capSubs, LIMITS.SUBS_MAX, 150);
-
-  /* v2.2: calibração correcta — 220 palavras/página em Georgia 12pt A4
-     Máximo reduzido de 3000 para 2000 para evitar overflow de páginas */
-  const palavrasPorCap = Math.min(
-    Math.max(parseInt(payload.palavrasPorCap, 10) || 500, 150),
-    2000
-  );
 
   /* Campos de inteligência do frontend (opcionais) */
   const instrucaoVariacao     = sanitizeString(payload.instrucaoVariacao     || '', 1500);
@@ -438,17 +437,14 @@ async function actionGenerateLesson(payload) {
   if (!tema)      throw new Error('tema é obrigatório para generate_lesson');
   if (!capTitulo) throw new Error('capTitulo é obrigatório para generate_lesson');
 
+  /* Seleccionar prefixo de exemplo para este capítulo */
   const prefixoExemplo = EXEMPLO_PREFIXOS[(capNum - 1) % EXEMPLO_PREFIXOS.length];
 
   const subsFormatados = capSubs
     .map((s, i) => `${capNum}.${i + 1} ${s}`)
     .join('\n');
 
-  /* v2.2: calcular parágrafos por subtópico com base nas palavras alvo */
-  const parasPorSub = capSubs.length > 0
-    ? Math.max(2, Math.round(palavrasPorCap / (capSubs.length * 75)))
-    : 3;
-
+  /* Bloco anti-IA */
   const blocoAntiIA = gerarInstrucaoAntiIA(
     capNum, totalCaps,
     instrucaoVariacao, instrucaoInteligencia, instrucaoRaciocinio
@@ -465,10 +461,10 @@ ${subsFormatados}
 ESTRUTURA OBRIGATÓRIA PARA CADA SUBTÓPICO:
 Cada subtópico deve conter, pela seguinte ordem:
 1. Título do subtópico numerado (ex: ${capNum}.1 Nome do Subtópico) em linha própria e separada
-2. Parágrafo de contextualização (50-70 palavras)
-3. Desenvolvimento teórico (${parasPorSub} parágrafos de 50-70 palavras cada)
-4. Exemplo concreto introduzido OBRIGATORIAMENTE com a expressão "${prefixoExemplo}" — 50-70 palavras, realista e relacionado com Angola ou África
-5. Parágrafo de síntese parcial (30-50 palavras)
+2. Parágrafo de contextualização (60-80 palavras)
+3. Desenvolvimento teórico (2 a 3 parágrafos de 60-80 palavras cada)
+4. Exemplo concreto introduzido OBRIGATORIAMENTE com a expressão "${prefixoExemplo}" — mínimo 60 palavras, realista e relacionado com Angola ou África
+5. Parágrafo de síntese parcial (40-60 palavras)
 
 REGRAS DE FORMATAÇÃO:
 - O título do capítulo (${capNum}. ${capTitulo}) aparece no topo, em linha própria
@@ -477,20 +473,16 @@ REGRAS DE FORMATAÇÃO:
 - Parágrafos separados por linha em branco
 - Sem bullets, sem listas, sem asteriscos, sem markdown
 - Português formal angolano/europeu
-
-CONTROLO RIGOROSO DE TAMANHO:
-- Total do capítulo: EXACTAMENTE ${palavrasPorCap} palavras — NÃO ESCREVAS MAIS DO QUE ISTO
-- Se houver ${capSubs.length} subtópicos, distribui equitativamente: ~${Math.round(palavrasPorCap / Math.max(capSubs.length, 1))} palavras por subtópico
-- Parágrafos curtos e densos — prefere 2 parágrafos bem desenvolvidos a 4 parágrafos vazios
-- Quando atingires ${palavrasPorCap} palavras, PARA
+- ⚠ LIMITE OBRIGATÓRIO: EXACTAMENTE ${palavrasPorCap} PALAVRAS — NEM MAIS. PÁRA quando atingires ${palavrasPorCap} palavras.
 
 ${blocoAntiIA}
 
 Escreve o capítulo completo agora, sem introduções nem comentários.`;
 
   const messages = [{ role: 'user', content: prompt }];
-  const resposta = await callOpenRouter(messages, { max_tokens: 4096, temperature: 0.65 });
+  const resposta = await callOpenRouter(messages, { max_tokens: 8192, temperature: 0.65 });
 
+  /* v2.1: Remover linha "Capítulo X — TÍTULO" do output se o modelo a gerar */
   const respostaLimpa = removerCabecalhoDuplicado(resposta, capNum, capTitulo);
 
   return envelope('generate_lesson', { resposta: respostaLimpa });
@@ -502,5 +494,8 @@ Escreve o capítulo completo agora, sem introduções nem comentários.`;
 function removerCabecalhoDuplicado(texto, capNum, capTitulo) {
   if (!texto) return texto;
   return texto
+    /* Remove "Capítulo N — qualquer coisa" em linha própria */
     .replace(/^cap[íi]tulo\s+\d+\s*[—\-–][^\n]*\n?/gim, '')
-    
+    /* Remove "CAPÍTULO N — qualquer coisa" em maiúsculas */
+    .replace(/^CAP[ÍIÍTULO]+\s+\d+\s*[—\-–][^\n]*\n?/gm, '')
+ 

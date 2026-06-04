@@ -8315,7 +8315,7 @@ function montarDocumentoPDF(secs,meta){
   /* 2. Distribuir por páginas semânticas */
   const paginasDeBlocos=layoutCalcularBlocos(blocos);
 
-  /* 2b. v48: Validar anomalias (não bloqueia — apenas loga) */
+  /* 2b. v64: Validar anomalias — alerta utilizador se crítico */
   layoutValidarDocumento(paginasDeBlocos, blocos);
 
   /* 3. TOC REAL — páginas reais calculadas a partir da distribuição */
@@ -8428,7 +8428,14 @@ function layoutValidarDocumento(paginasDeBlocos, blocos){
   });
 
   const ok=alertas.length===0;
-  if(!ok) console.warn('[ACADEMY v48] Anomalias detectadas:', alertas);
+  if(!ok){
+    console.warn('[ACADEMY v48] Anomalias detectadas:', alertas);
+    /* v64: mostrar primeiro alerta crítico ao utilizador */
+    const criticos = alertas.filter(a => /vazi|incompleto|sem referência/i.test(a));
+    if(criticos.length > 0 && typeof mostrarToast === 'function'){
+      mostrarToast('⚠ ' + criticos[0]);
+    }
+  }
   return{ok, alertas};
 }
 

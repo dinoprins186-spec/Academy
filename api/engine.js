@@ -1,12 +1,15 @@
 /* =======================================================================
    ACADEMY — /api/engine  (Vercel Serverless Function)
-   Versão: SaaS-Hardened v2.2 — Academic Intelligence
+   Versão: SaaS-Hardened v2.1 — Academic Intelligence
    
-   v2.2 — Fixes cirúrgicos (base: v2.1 inalterada):
-   ─ palavrasPorCap: máximo 3000→2000, default calculado por pagsRef×220
-   ─ Prompt: "aproximadamente" → "EXACTAMENTE — PÁRA quando atingires N palavras"
-   ─ Pools A/B/C/D expandidos (15/11/12/14 entradas)
-   ─ TUDO O RESTO DO v2.1 INALTERADO
+   v2.1 — Alterações cirúrgicas:
+   ─ Anti-detecção IA: pool de prefixos de exemplo por capítulo
+   ─ Variação de hipótese/pressuposto
+   ─ instrucaoVariacao + instrucaoInteligencia + instrucaoRaciocinio do frontend
+   ─ Remoção de "Capítulo X — TÍTULO" do output
+   ─ Progressão de tese por posição no documento
+   ─ generate_lesson actualizado com mesmo sistema
+   ─ TUDO O RESTO INALTERADO
 ======================================================================= */
 
 /* ── Configuração OpenRouter ────────────────────────────────────────── */
@@ -73,11 +76,6 @@ const EXEMPLO_PREFIXOS = [
   'Tomando como referência,',
   'De forma ilustrativa,',
   'Como se verifica na prática,',
-  'A experiência demonstra que',
-  'Sirva de exemplo o facto de que',
-  'Atente-se ao caso em que',
-  'Na realidade concreta,',
-  'Como ilustração deste fenómeno,',
 ];
 
 /* Pool B: variações de hipótese/pressuposto */
@@ -90,9 +88,6 @@ const HIPOTESE_VARIACOES = [
   'O presente trabalho defende que',
   'A análise desenvolvida indica que',
   'Considera-se relevante sublinhar que',
-  'Os dados apontam para que',
-  'A evidência disponível indica que',
-  'Torna-se evidente que',
 ];
 
 /* Pool C: conectores de conclusão */
@@ -105,10 +100,6 @@ const CONCLUSAO_CONECTORES = [
   'Face ao exposto,',
   'Perante o analisado,',
   'Assim sendo,',
-  'À luz do exposto,',
-  'Pelo exposto,',
-  'Depreende-se, portanto, que',
-  'O que foi dito permite concluir que',
 ];
 
 /* Pool D: conectores de introdução */
@@ -121,12 +112,6 @@ const INTRODUCAO_CONECTORES = [
   'Convém destacar que',
   'Saliente-se que',
   'Há que considerar que',
-  'Refira-se ainda que',
-  'Neste âmbito,',
-  'No mesmo registo,',
-  'A este propósito,',
-  'Acresce ainda que',
-  'Vale a pena notar que',
 ];
 
 /* Progressão de tese por posição no documento */
@@ -425,8 +410,7 @@ async function actionGenerateLesson(payload) {
   const capNum         = parseInt(payload.capNum, 10) || 1;
   const totalCaps      = parseInt(payload.totalCaps, 10) || parseInt(payload.totalPags, 10) || 4;
   const capTitulo      = sanitizeString(payload.capTitulo || '', 200);
-  /* v2.2: calibração correcta — máx 2000 para evitar overflow de páginas */
-  const palavrasPorCap = Math.min(Math.max(parseInt(payload.palavrasPorCap, 10) || 500, 200), 2000);
+  const palavrasPorCap = Math.min(Math.max(parseInt(payload.palavrasPorCap, 10) || 600, 200), 3000);
   const capSubs        = sanitizeStringArray(payload.capSubs, LIMITS.SUBS_MAX, 150);
 
   /* Campos de inteligência do frontend (opcionais) */
@@ -473,7 +457,7 @@ REGRAS DE FORMATAÇÃO:
 - Parágrafos separados por linha em branco
 - Sem bullets, sem listas, sem asteriscos, sem markdown
 - Português formal angolano/europeu
-- ⚠ LIMITE OBRIGATÓRIO: EXACTAMENTE ${palavrasPorCap} PALAVRAS — NEM MAIS. PÁRA quando atingires ${palavrasPorCap} palavras.
+- Total do capítulo: aproximadamente ${palavrasPorCap} palavras
 
 ${blocoAntiIA}
 
@@ -498,4 +482,16 @@ function removerCabecalhoDuplicado(texto, capNum, capTitulo) {
     .replace(/^cap[íi]tulo\s+\d+\s*[—\-–][^\n]*\n?/gim, '')
     /* Remove "CAPÍTULO N — qualquer coisa" em maiúsculas */
     .replace(/^CAP[ÍIÍTULO]+\s+\d+\s*[—\-–][^\n]*\n?/gm, '')
- 
+    /* Remove linhas em branco duplas resultantes da remoção */
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/* ====================================================================
+   ACÇÃO: save_history — INALTERADA
+==================================================================== */
+async function actionSaveHistory(payload) {
+  const user_id  = sanitizeString(payload.user_id || '', 200);
+  const tipo     = sanitizeString(payload.tipo     || '', 100);
+  const tema     = sanitizeString(payload.tema     || '', LIMITS.TEMA_MAX_LEN);
+  const pags     = 

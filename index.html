@@ -2937,7 +2937,7 @@ async function sbProcessar(id){
 async function sbCheckAprovados(){
   try{
     const uid=sbUserId();
-    const r=await fetch(SB_URL+'/rest/v1/pagamentos?utilizador_id=eq.'+uid+'&estado=eq.aprovado&order=aprovado_em.desc',{headers:SB_H()});
+    const r=await fetch(SB_URL+'/rest/v1/pagamentos?utilizador_id=eq.'+uid+'&estado=eq.aprovado&order=criado_em.desc',{headers:SB_H()});
     if(!r.ok)return;
     const rows=await r.json();
     for(const row of rows){
@@ -9163,7 +9163,20 @@ function mostrarToast(msg){
    Único endpoint: /api/engine
    Único provider de IA: OpenRouter (gerido pelo backend)
 ════════════════════════════════════════════════════════ */
-const ACADEMY_ENGINE_URL='/api/engine';
+/* v60 fix CORS: URL absoluta do backend.
+   Quando o frontend está num domínio diferente (ex: academy-a.vercel.app)
+   e o backend está em academyscosao.vercel.app, o browser bloqueia pedidos
+   para '/api/engine' (relativo) porque resolve para o domínio errado.
+   Com URL absoluta o CORS do backend (Access-Control-Allow-Origin: *) funciona. */
+const ACADEMY_ENGINE_URL = (() => {
+  const h = window.location.hostname;
+  /* Se estamos no mesmo domínio do backend, usar relativo (mais rápido) */
+  if(h === 'academyscosao.vercel.app' || h === 'localhost' || h === '127.0.0.1') {
+    return '/api/engine';
+  }
+  /* Domínio diferente — usar URL absoluta do backend */
+  return 'https://academyscosao.vercel.app/api/engine';
+})();
 
 /* Converte markdown simples em HTML legível */
 function mdParaHtml(txt){

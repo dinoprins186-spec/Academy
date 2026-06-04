@@ -204,9 +204,12 @@ ESTRUTURA POR SUBTÓPICO:
 4. Exemplo com "${ex}" (mín. 60 palavras, contexto angolano)
 5. Síntese (40-60 palavras)
 
-FORMATAÇÃO:
+FORMATAÇÃO OBRIGATÓRIA:
 - Título do capítulo: "${capNum}. ${capTit}" — NÃO escrevas "Capítulo ${capNum} —"
-- Sem bullets, sem markdown, parágrafos separados por linha em branco
+- Cada subtítulo (${capNum}.1, ${capNum}.2, etc.) em LINHA PRÓPRIA com UMA LINHA EM BRANCO ANTES e DEPOIS
+- Os parágrafos de cada subtópico ficam DEPOIS do subtítulo, separados por linha em branco
+- NUNCA coloques o subtítulo e o texto na mesma linha
+- Sem bullets, sem markdown
 - Português formal angolano
 - ⚠ LIMITE: ${palavras} PALAVRAS — PÁRA ao atingir este limite
 ${p.instrucaoSubtitulos ? '\n' + p.instrucaoSubtitulos : ''}

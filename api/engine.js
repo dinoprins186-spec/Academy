@@ -10,9 +10,9 @@ const OR_SITE  = 'https://academyscosao.vercel.app';
 const OR_TITLE = 'ACADEMY';
 
 const MODELS = [
+  'anthropic/claude-3.5-sonnet',
   'openai/gpt-4o-mini',
   'meta-llama/llama-3.1-8b-instruct',
-  'anthropic/claude-3.5-sonnet',
 ];
 
 /* ---------------- RATE LIMIT ---------------- */
@@ -54,9 +54,11 @@ const CONCLUSOES = [
 
 function antiIA(capNum, totalCaps) {
   const n = Math.max(0, (capNum||1) - 1);
-  const ex  = EXEMPLOS[n % EXEMPLOS.length];
-  const hip = HIPOTESES[n % HIPOTESES.length];
-  const con = CONCLUSOES[(n+2) % CONCLUSOES.length];
+  /* v61: aleatoriedade real — cada geração usa conectores diferentes */
+  const rIdx = (arr, seed) => arr[(n * 7 + seed * 3 + Math.floor(Math.random() * arr.length)) % arr.length];
+  const ex  = rIdx(EXEMPLOS, 1);
+  const hip = rIdx(HIPOTESES, 2);
+  const con = rIdx(CONCLUSOES, 3);
   const pos = totalCaps > 1 ? (n/(totalCaps-1)) : 0;
   const fase = pos<=0.1?'introdução':pos<=0.35?'fundamentação teórica':
                pos<=0.65?'análise':pos<=0.88?'síntese':'conclusão';
@@ -204,12 +206,9 @@ ESTRUTURA POR SUBTÓPICO:
 4. Exemplo com "${ex}" (mín. 60 palavras, contexto angolano)
 5. Síntese (40-60 palavras)
 
-FORMATAÇÃO OBRIGATÓRIA:
+FORMATAÇÃO:
 - Título do capítulo: "${capNum}. ${capTit}" — NÃO escrevas "Capítulo ${capNum} —"
-- Cada subtítulo (${capNum}.1, ${capNum}.2, etc.) em LINHA PRÓPRIA com UMA LINHA EM BRANCO ANTES e DEPOIS
-- Os parágrafos de cada subtópico ficam DEPOIS do subtítulo, separados por linha em branco
-- NUNCA coloques o subtítulo e o texto na mesma linha
-- Sem bullets, sem markdown
+- Sem bullets, sem markdown, parágrafos separados por linha em branco
 - Português formal angolano
 - ⚠ LIMITE: ${palavras} PALAVRAS — PÁRA ao atingir este limite
 ${p.instrucaoSubtitulos ? '\n' + p.instrucaoSubtitulos : ''}
@@ -217,7 +216,21 @@ ${antiIA(capNum, totalCaps)}`;
 
   const r = await callAI([{ role:'user', content:prompt }], { max_tokens: maxTok, temperature:0.65 });
   /* Remover "Capítulo N —" gerado pelo modelo */
-  const limpo = r.replace(/^cap[íi]tulo\s+\d+\s*[—\-–][^\n]*\n?/gim, '').replace(/\n{3,}/g,'\n\n').trim();
+  let limpo = r.replace(/^cap[íi]tulo\s+\d+\s*[—\-–][^\n]*\n?/gim, '').replace(/\n{3,}/g,'\n\n').trim();
+
+  /* v61: se o texto não termina com frase completa, pedir continuação */
+  if (!/[.!?]\s*$/.test(limpo)) {
+    try {
+      const cont = await callAI([
+        { role:'user', content: prompt },
+        { role:'assistant', content: limpo },
+        { role:'user', content: 'O texto ficou incompleto. Continua a partir do último ponto e termina com uma frase de conclusão completa. Máx. 120 palavras.' },
+      ], { max_tokens: 400, temperature: 0.65 });
+      if (cont && /[.!?]\s*$/.test(cont.trim())) {
+        limpo = (limpo + ' ' + cont.trim()).replace(/\n{3,}/g,'\n\n').trim();
+      }
+    } catch(_) { /* continua com o que existe */ }
+  }
   return { resposta: truncar(limpo, Math.round(palavras*1.1)) };
 }
 
@@ -232,10 +245,11 @@ REGRAS ABSOLUTAS:
 - Mínimo 10, máximo 12 referências
 - Formato APA 7ª edição estrito
 - Pelo menos 3 autores africanos ou angolanos
-- Pelo menos 2 publicações recentes (2018-2024)
+- Pelo menos 2 publicações entre 2018 e 2024
 - Ordenadas alfabeticamente pelo apelido
 - Sem numeração, sem bullets — uma referência por parágrafo, linha em branco entre cada
-- Todas reais ou altamente verossímeis para a área "${area}"
+- Usa apenas autores, títulos e revistas que existem de facto na área "${area}"
+- PROIBIDO inventar DOIs — se não souberes o DOI real, omite-o
 Escreve APENAS as referências, sem título nem introdução.`;
 
   return { resposta: await callAI([{ role:'user', content:prompt }], { max_tokens:2000, temperature:0.4 }) };
@@ -350,7 +364,8 @@ async function callAI(messages, opts={}) {
       if (!resp.ok) { lastErr=await resp.text().catch(()=>resp.status); continue; }
       const data = await resp.json();
       const text = data?.choices?.[0]?.message?.content?.trim();
-      if (text && text.length>10) return text;
+      /* v61: mínimo 80 palavras — evita capítulos quase vazios */
+      if (text && text.split(/\s+/).filter(Boolean).length >= 80) return text;
       lastErr='empty response';
     } catch(e) { lastErr=e.message; }
   }

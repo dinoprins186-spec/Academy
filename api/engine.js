@@ -1,7 +1,12 @@
 /* =======================================================================
    ACADEMY ENGINE - SAAS BLINDADO (PRODUÇÃO)
-   Base: versão funcional original
-   v60: + CORS + todas as acções do frontend + anti-IA + limite de palavras
+   v62: ESTRATÉGIA BACKEND-FIRST
+   - Título NUNCA incluído no conteúdo (página vazia eliminada)
+   - Conteúdo mínimo garantido antes de devolver (regeneração automática)
+   - JSON canónico: { titulo, resposta } sempre separados e completos
+   - Continuação automática se texto cortado
+   - Anti-IA com aleatoriedade real
+   - claude-3.5-sonnet como modelo principal
 ======================================================================= */
 
 /* ---------------- OPENROUTER ---------------- */
@@ -194,44 +199,69 @@ async function doCapitulo(p) {
   const maxTok = Math.min(Math.max(Math.round(palavras*1.7), 400), 8000);
 
   const prompt = `És um professor universitário angolano.
-Escreve o capítulo ${capNum}. ${capTit} para um ${tipo} de nível ${nivel} sobre "${tema}".
+Escreve APENAS o conteúdo do capítulo "${capTit}" para um ${tipo} de nível ${nivel} sobre "${tema}".
+
+REGRA CRÍTICA: NÃO escrevas o título "${capNum}. ${capTit}" nem "Capítulo ${capNum}" — o título já existe no documento. Começa directamente pelo primeiro subtópico.
 
 SUBTÓPICOS (usa esta numeração exacta):
 ${subs}
 
 ESTRUTURA POR SUBTÓPICO:
-1. Título numerado em linha própria
+1. Subtítulo numerado em linha própria (ex: "${capNum}.1 Nome do Subtópico")
 2. Contextualização (60-80 palavras)
 3. Desenvolvimento teórico (2-3 parágrafos, 60-80 palavras cada)
 4. Exemplo com "${ex}" (mín. 60 palavras, contexto angolano)
 5. Síntese (40-60 palavras)
 
 FORMATAÇÃO:
-- Título do capítulo: "${capNum}. ${capTit}" — NÃO escrevas "Capítulo ${capNum} —"
 - Sem bullets, sem markdown, parágrafos separados por linha em branco
 - Português formal angolano
 - ⚠ LIMITE: ${palavras} PALAVRAS — PÁRA ao atingir este limite
 ${p.instrucaoSubtitulos ? '\n' + p.instrucaoSubtitulos : ''}
 ${antiIA(capNum, totalCaps)}`;
 
-  const r = await callAI([{ role:'user', content:prompt }], { max_tokens: maxTok, temperature:0.65 });
-  /* Remover "Capítulo N —" gerado pelo modelo */
-  let limpo = r.replace(/^cap[íi]tulo\s+\d+\s*[—\-–][^\n]*\n?/gim, '').replace(/\n{3,}/g,'\n\n').trim();
+  let r = await callAI([{ role:'user', content:prompt }], { max_tokens: maxTok, temperature:0.65 });
 
-  /* v61: se o texto não termina com frase completa, pedir continuação */
+  /* v62: limpar qualquer título que o modelo tenha incluído mesmo proibido */
+  let limpo = r
+    .replace(/^cap[íi]tulo\s+\d+\s*[—\-–][^\n]*\n?/gim, '')
+    .replace(new RegExp(`^${capNum}[.\\s]+${capTit.substring(0,30).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}[^\n]*\n?`, 'gim'), '')
+    .replace(new RegExp(`^${capTit.substring(0,30).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}[^\n]*\n?`, 'gim'), '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  /* v62: se texto cortado, pedir continuação */
   if (!/[.!?]\s*$/.test(limpo)) {
     try {
       const cont = await callAI([
         { role:'user', content: prompt },
         { role:'assistant', content: limpo },
-        { role:'user', content: 'O texto ficou incompleto. Continua a partir do último ponto e termina com uma frase de conclusão completa. Máx. 120 palavras.' },
+        { role:'user', content: 'O texto ficou incompleto. Continua e termina com uma frase de conclusão completa. Máx. 120 palavras.' },
       ], { max_tokens: 400, temperature: 0.65 });
       if (cont && /[.!?]\s*$/.test(cont.trim())) {
-        limpo = (limpo + ' ' + cont.trim()).replace(/\n{3,}/g,'\n\n').trim();
+        limpo = (limpo + '\n\n' + cont.trim()).replace(/\n{3,}/g, '\n\n').trim();
       }
     } catch(_) { /* continua com o que existe */ }
   }
-  return { resposta: truncar(limpo, Math.round(palavras*1.1)) };
+
+  /* v62: garantir conteúdo mínimo — se ficou curto, regenerar uma vez */
+  const MIN_PALAVRAS = Math.round(palavras * 0.6);
+  if (limpo.split(/\s+/).filter(Boolean).length < MIN_PALAVRAS) {
+    try {
+      const regen = await callAI([
+        { role:'user', content: prompt + `\n\nIMPORTANTE: O texto anterior ficou muito curto. Escreve com mais detalhe, mínimo ${palavras} palavras.` }
+      ], { max_tokens: maxTok, temperature: 0.7 });
+      const regenLimpo = regen
+        .replace(/^cap[íi]tulo\s+\d+\s*[—\-–][^\n]*\n?/gim, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      if (regenLimpo.split(/\s+/).filter(Boolean).length > limpo.split(/\s+/).filter(Boolean).length) {
+        limpo = regenLimpo;
+      }
+    } catch(_) { /* fica com o original */ }
+  }
+
+  return { resposta: truncar(limpo, Math.round(palavras * 1.1)) };
 }
 
 /* ---------------- REFERÊNCIAS ---------------- */

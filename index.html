@@ -8036,11 +8036,28 @@ function layoutCalcularBlocos(blocos){
     const h=layoutAlturaBloco(b);
 
     if(b.tipo==='titulo_cap'){
-      /* v63: só quebra se a página actual tem conteúdo além de outro titulo_cap */
+      /* v65: só quebra se a página actual tem conteúdo além de outro titulo_cap */
       const temConteudo = paginaActual.some(x => x.tipo !== 'titulo_cap');
       if(temConteudo) novaPageBreak();
       paginaActual.push(b);
-      alturaUsada=h;
+      alturaUsada = h;
+      /* v65: lookahead — verificar se o próximo bloco (h2/h3/paragrafo) cabe
+         na mesma página. Se não couber, NÃO deixar o titulo_cap sozinho —
+         ele vai junto com o próximo bloco para a página seguinte. */
+      const proximo = blocos[i+1];
+      if(proximo){
+        const hProx = layoutAlturaBloco(proximo);
+        const guardaProx = (proximo.tipo==='h2'||proximo.tipo==='h3')
+          ? hProx + 240  /* subtítulo + mínimo conteúdo */
+          : hProx;
+        if(alturaUsada + guardaProx > AREA){
+          /* titulo_cap não cabe com o próximo — mover para página nova */
+          paginaActual.pop();
+          novaPageBreak();
+          paginaActual.push(b);
+          alturaUsada = h;
+        }
+      }
       continue;
     }
 
@@ -8153,7 +8170,6 @@ function layoutRenderPagina(blocosDaPagina, opts){
     ${isTOC?'<span>ÍNDICE</span><span style="font-style:normal">— ii —</span><span></span>'
            :`<span></span><span>— ${num} —</span><span></span>`}
   </div>`:''}
-  ${watermark?`<div class="pag-watermark">ACADEMY · Versão Gratuita · academyscosao.vercel.app</div>`:''}
 </div>`;
 }
 
@@ -8182,7 +8198,6 @@ function renderPagina(conteudoHtml, opts){
     ${isTOC?'<span>ÍNDICE</span><span style="font-style:normal">— ii —</span><span></span>'
            :`<span></span><span>— ${num} —</span><span></span>`}
   </div>`:''}
-  ${watermark?`<div class="pag-watermark">ACADEMY · Versão Gratuita · academyscosao.vercel.app</div>`:''}
 </div>`;
 }
 
@@ -8289,10 +8304,7 @@ function htmlCapa(meta){
     ${prof?`<div style="font-family:Georgia,'Times New Roman',serif;font-size:10pt;font-style:italic;color:#555;margin-top:5pt">Orientador: ${prof}</div>`:''}
     <div style="font-family:Georgia,'Times New Roman',serif;font-size:10pt;color:#666;margin-top:8pt">${data}</div>
   </div>
-  <div style="flex:1;min-height:14pt"></div>
-  <div style="font-family:Georgia,'Times New Roman',serif;font-size:7.5pt;letter-spacing:.14em;text-transform:uppercase;color:#AAA;text-align:center;padding-bottom:8pt;flex-shrink:0">
-    ACADEMY · GRUPO AGEA COMERCIAL · CEO ADELINO GRAÇA${isEx?' — EXEMPLAR OFICIAL':''}
-  </div>`;
+  <div style="flex:1;min-height:14pt"></div>`;
 }
 
 /* ════════════════════════════════════════════════
@@ -8315,7 +8327,7 @@ function montarDocumentoPDF(secs,meta){
   /* 2. Distribuir por páginas semânticas */
   const paginasDeBlocos=layoutCalcularBlocos(blocos);
 
-  /* 2b. v64: Validar anomalias — alerta utilizador se crítico */
+  /* 2b. v48: Validar anomalias (não bloqueia — apenas loga) */
   layoutValidarDocumento(paginasDeBlocos, blocos);
 
   /* 3. TOC REAL — páginas reais calculadas a partir da distribuição */
@@ -8428,14 +8440,7 @@ function layoutValidarDocumento(paginasDeBlocos, blocos){
   });
 
   const ok=alertas.length===0;
-  if(!ok){
-    console.warn('[ACADEMY v48] Anomalias detectadas:', alertas);
-    /* v64: mostrar primeiro alerta crítico ao utilizador */
-    const criticos = alertas.filter(a => /vazi|incompleto|sem referência/i.test(a));
-    if(criticos.length > 0 && typeof mostrarToast === 'function'){
-      mostrarToast('⚠ ' + criticos[0]);
-    }
-  }
+  if(!ok) console.warn('[ACADEMY v48] Anomalias detectadas:', alertas);
   return{ok, alertas};
 }
 

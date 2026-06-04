@@ -15,7 +15,7 @@
 /* ── Configuração OpenRouter ────────────────────────────────────────── */
 const OR_URL   = 'https://openrouter.ai/api/v1/chat/completions';
 const OR_MODEL = 'openai/gpt-4o-mini';
-const OR_SITE  = 'https://academy.agea.ao';
+const OR_SITE  = 'https://academyscosao.vercel.app'; /* v59: domínio Vercel real */
 const OR_TITLE = 'ACADEMY - Grupo AGEA Comercial';
 
 /* ── Limites de protecção ───────────────────────────────────────────── */
@@ -410,7 +410,7 @@ async function actionGenerateLesson(payload) {
   const capNum         = parseInt(payload.capNum, 10) || 1;
   const totalCaps      = parseInt(payload.totalCaps, 10) || parseInt(payload.totalPags, 10) || 4;
   const capTitulo      = sanitizeString(payload.capTitulo || '', 200);
-  const palavrasPorCap = Math.min(Math.max(parseInt(payload.palavrasPorCap, 10) || 600, 200), 3000);
+  const palavrasPorCap = Math.min(Math.max(parseInt(payload.palavrasPorCap, 10) || 400, 150), 2000); /* v59: default 400, max 2000 */
   const capSubs        = sanitizeStringArray(payload.capSubs, LIMITS.SUBS_MAX, 150);
 
   /* Campos de inteligência do frontend (opcionais) */
@@ -494,4 +494,431 @@ async function actionSaveHistory(payload) {
   const user_id  = sanitizeString(payload.user_id || '', 200);
   const tipo     = sanitizeString(payload.tipo     || '', 100);
   const tema     = sanitizeString(payload.tema     || '', LIMITS.TEMA_MAX_LEN);
-  const pags     = 
+  const pags     = typeof payload.pags === 'number' ? Math.max(1, Math.min(payload.pags, 9999)) : null;
+  const qual     = typeof payload.qual === 'number' ? Math.max(0, Math.min(payload.qual, 100))   : null;
+  const metaRaw  = (typeof payload.metadata === 'object' && !Array.isArray(payload.metadata))
+                   ? payload.metadata : {};
+  const metadata = Object.fromEntries(
+    Object.entries(metaRaw)
+      .slice(0, 20)
+      .map(([k, v]) => [sanitizeString(k, 50), sanitizeString(String(v ?? ''), 300)])
+  );
+
+  if (!user_id) throw new Error('user_id é obrigatório para save_history');
+
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) throw new Error('Supabase não configurado no servidor.');
+
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), LIMITS.SB_TIMEOUT_MS);
+
+  let resp;
+  try {
+    resp = await fetch(`${url}/rest/v1/academy_history`, {
+      method : 'POST',
+      signal : ctrl.signal,
+      headers: {
+        'Content-Type' : 'application/json',
+        'apikey'       : key,
+        'Authorization': `Bearer ${key}`,
+        'Prefer'       : 'return=minimal',
+      },
+      body: JSON.stringify({ user_id, tipo, tema, pags, qual, metadata, created_at: new Date().toISOString() }),
+    });
+  } finally {
+    clearTimeout(tid);
+  }
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    throw new Error(`Supabase insert falhou (HTTP ${resp.status}): ${errText.substring(0, 200)}`);
+  }
+
+  return envelope('save_history', { saved: true });
+}
+
+/* ====================================================================
+   ACÇÃO: get_history — INALTERADA
+==================================================================== */
+async function actionGetHistory(payload) {
+  const user_id = sanitizeString(payload.user_id || '', 200);
+  const limit   = Math.min(Math.max(parseInt(payload.limit, 10) || 20, 1), 100);
+
+  if (!user_id) throw new Error('user_id é obrigatório para get_history');
+
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) throw new Error('Supabase não configurado no servidor.');
+
+  const params = new URLSearchParams({
+    select  : '*',
+    user_id : `eq.${user_id}`,
+    order   : 'created_at.desc',
+    limit   : String(limit),
+  });
+
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), LIMITS.SB_TIMEOUT_MS);
+
+  let resp;
+  try {
+    resp = await fetch(`${url}/rest/v1/academy_history?${params}`, {
+      signal : ctrl.signal,
+      headers: { 'apikey': key, 'Authorization': `Bearer ${key}` },
+    });
+  } finally {
+    clearTimeout(tid);
+  }
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    throw new Error(`Supabase select falhou (HTTP ${resp.status}): ${errText.substring(0, 200)}`);
+  }
+
+  const rows = await resp.json();
+  return envelope('get_history', { rows });
+}
+
+/* ====================================================================
+   ACÇÃO: get_stock — INALTERADA (stub)
+==================================================================== */
+function actionGetStock(payload) {
+  return envelope('get_stock', { items: [] });
+}
+
+/* ====================================================================
+   ACÇÃO: legacy — v2.1 COM ANTI-DETECÇÃO IA INJECTADA
+   Trata todas as acções académicas legacy.
+   ALTERAÇÃO CIRÚRGICA: prompts de gerar_capitulo e
+   gerar_capitulo_referencias recebem blocoAntiIA + prefixoExemplo.
+==================================================================== */
+async function actionLegacy(action, payload) {
+
+  /* ── ping ──────────────────────────────────────────────────────── */
+  if (action === 'ping') {
+    return envelope('ping', { pong: true, ts: Date.now() });
+  }
+
+  /* ── Campos comuns ──────────────────────────────────────────────── */
+  const tema         = sanitizeString(payload.tema         || '', LIMITS.TEMA_MAX_LEN);
+  const tipoTrabalho = sanitizeString(payload.tipoTrabalho || 'Trabalho Académico', 120);
+  const nivel        = sanitizeString(payload.nivel        || '', 80);
+  const capNum       = parseInt(payload.capNum, 10) || 1;
+  const totalCaps    = parseInt(payload.totalCaps, 10) || parseInt(payload.totalPags, 10) || 4;
+  const capTitulo    = sanitizeString(payload.capTitulo    || '', 200);
+  const palavrasPorCap = Math.min(Math.max(parseInt(payload.palavrasPorCap, 10) || 400, 150), 2000); /* v59: default 400, max 2000 */
+  const capSubs      = sanitizeStringArray(payload.capSubs || [], LIMITS.SUBS_MAX, 150);
+
+  /* Campos de inteligência do frontend (v51/v52/v53) */
+  const instrucaoVariacao     = sanitizeString(payload.instrucaoVariacao     || '', 1500);
+  const instrucaoInteligencia = sanitizeString(payload.instrucaoInteligencia || '', 3000);
+  const instrucaoRaciocinio   = sanitizeString(payload.instrucaoRaciocinio   || '', 2000);
+  const instrucaoSubtitulos   = sanitizeString(payload.instrucaoSubtitulos   || '', 400);
+
+  /* ── plano_academico ────────────────────────────────────────────── */
+  if (action === 'plano_academico') {
+    if (!tema) throw new Error('tema é obrigatório para plano_academico');
+    const prompt = `És um professor universitário angolano especialista em metodologia académica.
+Cria um plano académico completo para um ${tipoTrabalho} de nível "${nivel}" sobre: "${tema}".
+
+Responde APENAS com um objecto JSON válido, sem markdown, sem comentários, com esta estrutura exacta:
+{
+  "objetivo": "string — objectivo geral do trabalho (2-3 frases)",
+  "hipotese": "string — hipótese central do trabalho (1-2 frases)",
+  "problema": "string — problema de investigação (1-2 frases)",
+  "metodologia": "string — metodologia a usar (1-2 frases)"
+}`;
+    const r = await callOpenRouter([{ role: 'user', content: prompt }], { max_tokens: 512, temperature: 0.4 });
+    const json = extrairJSON(r);
+    /* v2.1 fix: frontend espera envelope.data.resposta */
+    return envelope(action, { resposta: json });
+  }
+
+  /* ── estrutura_academica ────────────────────────────────────────── */
+  if (action === 'estrutura_academica') {
+    if (!tema) throw new Error('tema é obrigatório para estrutura_academica');
+    const totalPags  = Math.min(Math.max(parseInt(payload.totalPags, 10) || 15, 5), 100);
+    const objetivo   = sanitizeString(payload.objetivo   || '', 300);
+    const hipotese   = sanitizeString(payload.hipotese   || '', 200);
+    const metodologia= sanitizeString(payload.metodologia|| '', 200);
+
+    const prompt = `És um professor universitário angolano a estruturar um ${tipoTrabalho} de nível "${nivel}" sobre "${tema}".
+${objetivo  ? `Objectivo: ${objetivo}`    : ''}
+${hipotese  ? `Hipótese: ${hipotese}`     : ''}
+${metodologia ? `Metodologia: ${metodologia}` : ''}
+Número total de páginas pretendido: ${totalPags}
+
+Cria uma estrutura de capítulos para este trabalho.
+Responde APENAS com um array JSON, sem markdown, sem explicações:
+[
+  { "num": 1, "titulo": "Título do Capítulo", "subs": ["Subtópico 1.1", "Subtópico 1.2", "Subtópico 1.3"] },
+  ...
+]
+Regras:
+- Entre 3 e 6 capítulos
+- Cada capítulo com 2 a 4 subtópicos
+- Inclui sempre uma secção de Referências Bibliográficas no final
+- Títulos em português formal angolano
+- O último capítulo deve ser "Referências Bibliográficas" sem subtópicos`;
+
+    const r = await callOpenRouter([{ role: 'user', content: prompt }], { max_tokens: 1024, temperature: 0.4 });
+    const json = extrairJSON(r);
+    /* v2.1 fix: frontend espera envelope.data.resposta */
+    return envelope(action, { resposta: Array.isArray(json) ? json : [] });
+  }
+
+  /* ── gerar_capitulo ─────────────────────────────────────────────── */
+  if (action === 'gerar_capitulo') {
+    if (!tema)      throw new Error('tema é obrigatório');
+    if (!capTitulo) throw new Error('capTitulo é obrigatório');
+
+    const subsFormatados = capSubs
+      .map((s, i) => `${capNum}.${i + 1} ${s}`)
+      .join('\n');
+
+    /* v2.1: prefixo de exemplo específico para este capítulo */
+    const prefixoExemplo = EXEMPLO_PREFIXOS[(capNum - 1) % EXEMPLO_PREFIXOS.length];
+
+    /* v2.1: bloco anti-IA completo */
+    const blocoAntiIA = gerarInstrucaoAntiIA(
+      capNum, totalCaps,
+      instrucaoVariacao, instrucaoInteligencia, instrucaoRaciocinio
+    );
+
+    /* v2.2: max_tokens proporcional (~1.7 tokens/palavra português + margem) */
+    const maxTokens = Math.min(Math.max(Math.round(palavrasPorCap * 1.7), 400), 8192);
+
+    const prompt = `És um professor universitário angolano a escrever um capítulo académico.
+
+TRABALHO: ${tipoTrabalho} | Nível: ${nivel} | Tema: "${tema}"
+
+CAPÍTULO A ESCREVER:
+${capNum}. ${capTitulo}
+
+SUBTÓPICOS OBRIGATÓRIOS:
+${subsFormatados || `${capNum}.1 Contextualização\n${capNum}.2 Desenvolvimento\n${capNum}.3 Análise crítica`}
+
+ESTRUTURA DE CADA SUBTÓPICO:
+1. Título numerado em linha própria (ex: ${capNum}.1 Nome)
+2. Contextualização (60-80 palavras)
+3. Desenvolvimento teórico (2-3 parágrafos, 60-80 palavras cada)
+4. Exemplo concreto com "${prefixoExemplo}" (mínimo 60 palavras, contexto angolano/africano)
+5. Síntese (40-60 palavras)
+
+FORMATAÇÃO:
+- Título do capítulo no topo: "${capNum}. ${capTitulo}"
+- NÃO ESCREVAS "Capítulo ${capNum} —" em linha separada — isso é proibido
+- Sem bullets, sem asteriscos, sem markdown
+- Parágrafos separados por linha em branco
+- Português formal angolano
+- ⚠ LIMITE OBRIGATÓRIO: EXACTAMENTE ${palavrasPorCap} PALAVRAS — NEM MAIS. PÁRA quando atingires ${palavrasPorCap} palavras.
+${instrucaoSubtitulos ? '\n' + instrucaoSubtitulos : ''}
+${blocoAntiIA}
+
+Escreve o capítulo completo agora. PÁRA aos ${palavrasPorCap} palavras.`;
+
+    const r = await callOpenRouter([{ role: 'user', content: prompt }], { max_tokens: maxTokens, temperature: 0.65 });
+    const rLimpo = removerCabecalhoDuplicado(r, capNum, capTitulo);
+    /* v2.2: truncagem de segurança — garantir que não ultrapassa 130% do pedido */
+    const rFinal = truncarPorPalavras(rLimpo, Math.round(palavrasPorCap * 1.1));
+    return envelope(action, { resposta: rFinal });
+  }
+
+  /* ── gerar_capitulo_referencias ─────────────────────────────────── */
+  if (action === 'gerar_capitulo_referencias') {
+    const objetivo    = sanitizeString(payload.objetivo    || '', 200);
+    const hipotese    = sanitizeString(payload.hipotese    || '', 150);
+    const areaDetectada = sanitizeString(payload.areaDetectada || '', 50);
+
+    const prompt = `És um professor universitário angolano a escrever a secção de Referências Bibliográficas para um ${tipoTrabalho} sobre "${tema}".
+
+REGRAS ABSOLUTAS:
+- Mínimo 10 referências, máximo 12
+- Formato APA 7ª edição ESTRITO
+- Inclui obrigatoriamente pelo menos 3 autores africanos ou angolanos
+- Inclui pelo menos 2 publicações recentes (2018-2024)
+- Inclui artigos de revistas científicas, livros e dissertações
+- Ordena alfabeticamente pelo apelido do primeiro autor
+- Sem numeração, sem bullets — apenas texto, uma referência por parágrafo
+- Separa cada referência com uma linha em branco
+- Hanging indent APA: segunda linha recuada (o modelo de linguagem deve indicar com espaços)
+- Todas as referências devem ser REAIS ou altamente verossímeis para a área de "${areaDetectada || tema}"
+
+Escreve APENAS as referências, sem título, sem introdução, sem comentários.`;
+
+    const r = await callOpenRouter([{ role: 'user', content: prompt }], { max_tokens: 2048, temperature: 0.4 });
+    return envelope(action, { resposta: r });
+  }
+
+  /* ── regenerar_capitulo ─────────────────────────────────────────── */
+  if (action === 'regenerar_capitulo') {
+    if (!tema)      throw new Error('tema é obrigatório');
+    if (!capTitulo) throw new Error('capTitulo é obrigatório');
+
+    const prefixoExemplo = EXEMPLO_PREFIXOS[(capNum - 1) % EXEMPLO_PREFIXOS.length];
+    const blocoAntiIA    = gerarInstrucaoAntiIA(capNum, totalCaps, instrucaoVariacao, instrucaoInteligencia, instrucaoRaciocinio);
+
+    const subsFormatados = capSubs.map((s, i) => `${capNum}.${i + 1} ${s}`).join('\n');
+
+    const prompt = `Regenera o capítulo "${capNum}. ${capTitulo}" para um ${tipoTrabalho} sobre "${tema}".
+Nível: ${nivel}. Subtópicos: ${subsFormatados || 'padrão'}.
+Usa "${prefixoExemplo}" nos exemplos concretos.
+NÃO ESCREVAS "Capítulo ${capNum} —" — apenas "${capNum}. ${capTitulo}" no título.
+Total: ~${palavrasPorCap} palavras. Sem bullets, sem markdown.
+${blocoAntiIA}`;
+
+    const r = await callOpenRouter([{ role: 'user', content: prompt }], { max_tokens: 8192, temperature: 0.7 });
+    const rLimpo = removerCabecalhoDuplicado(r, capNum, capTitulo);
+    return envelope(action, { resposta: rLimpo });
+  }
+
+  /* ── editar_texto ───────────────────────────────────────────────── */
+  if (action === 'editar_texto') {
+    const texto   = sanitizeString(payload.texto   || '', LIMITS.TEXTO_MAX_LEN);
+    const subacao = sanitizeString(payload.subacao || 'melhorar', 50);
+
+    if (!texto) throw new Error('texto é obrigatório para editar_texto');
+
+    const instrucoes = {
+      melhorar : 'Melhora o estilo académico e fluidez, mantendo o conteúdo original. Português formal angolano.',
+      expandir : 'Expande o texto com mais detalhe académico, +30% de comprimento. Português formal angolano.',
+      resumir  : 'Resume o texto mantendo as ideias principais, -40% de comprimento. Português formal angolano.',
+      formalizar:'Formaliza a linguagem para nível universitário angolano. Sem alterar o conteúdo.',
+    };
+
+    const instrucao = instrucoes[subacao] || instrucoes.melhorar;
+    const prompt = `${instrucao}\n\nTexto:\n${texto}\n\nDevolve apenas o texto editado, sem comentários.`;
+    const r = await callOpenRouter([{ role: 'user', content: prompt }], { max_tokens: 4096, temperature: 0.5 });
+    return envelope(action, { resposta: r });
+  }
+
+  /* ── verificar_coerencia ────────────────────────────────────────── */
+  if (action === 'verificar_coerencia') {
+    const textoA = sanitizeString(payload.textoA || '', 2000);
+    const textoB = sanitizeString(payload.textoB || '', 2000);
+    if (!textoA || !textoB) throw new Error('textoA e textoB são obrigatórios');
+    const prompt = `Analisa a coerência entre dois capítulos académicos e responde apenas com JSON:
+{"coerente": true/false, "problemas": ["lista de problemas"], "sugestoes": ["lista de sugestões"]}
+Capítulo A: ${textoA}
+Capítulo B: ${textoB}`;
+    const r = await callOpenRouter([{ role: 'user', content: prompt }], { max_tokens: 512, temperature: 0.3 });
+    const json = extrairJSON(r);
+    return envelope(action, { resposta: json });
+  }
+
+  /* ── gerar_capa ─────────────────────────────────────────────────── */
+  if (action === 'gerar_capa') {
+    return envelope(action, { resposta: JSON.stringify({ capa: { titulo: tema, tipo: tipoTrabalho } }) });
+  }
+
+  /* ── mea_grafico / mea_tabela / mea_esquema ─────────────────────── */
+  if (['gerar_mea', 'mea_grafico', 'mea_tabela', 'mea_esquema'].includes(action)) {
+    const capResumo = sanitizeString(payload.capResumo || '', 400);
+    const tipo_mea  = action === 'mea_grafico' ? 'gráfico' : action === 'mea_tabela' ? 'tabela' : 'esquema';
+    const prompt    = `Cria um ${tipo_mea} académico para o capítulo "${capTitulo}" sobre "${tema}".
+Resumo: ${capResumo}
+Responde com JSON estruturado para o ${tipo_mea}, sem markdown.`;
+    const r = await callOpenRouter([{ role: 'user', content: prompt }], { max_tokens: 1024, temperature: 0.5 });
+    const json = extrairJSON(r);
+    return envelope(action, { resposta: json });
+  }
+
+  /* Fallback para acções legacy não reconhecidas */
+  throw new Error(`Acção legacy não implementada: "${action}"`);
+}
+
+/* ====================================================================
+   v2.2 — TRUNCAGEM POR PALAVRAS
+   Garante que o texto não ultrapassa o limite pedido.
+   Preserva parágrafos completos — não corta a meio de frase.
+==================================================================== */
+function truncarPorPalavras(texto, maxPalavras) {
+  if (!texto || maxPalavras <= 0) return texto;
+  const palavras = texto.split(/\s+/);
+  if (palavras.length <= maxPalavras) return texto;
+
+  /* Cortar no limite e depois recuar até ao fim do parágrafo mais próximo */
+  const cortado = palavras.slice(0, maxPalavras).join(' ');
+  /* Encontrar o último ponto final ou parágrafo */
+  const ultimoPonto = Math.max(cortado.lastIndexOf('.\n'), cortado.lastIndexOf('. '), cortado.lastIndexOf('.\n\n'));
+  if (ultimoPonto > cortado.length * 0.7) {
+    return cortado.substring(0, ultimoPonto + 1).trim();
+  }
+  return cortado.trim();
+}
+async function callOpenRouter(messages, opts = {}) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error('OPENROUTER_API_KEY não configurada no servidor.');
+
+  const maxRetries = 3;
+  const baseDelay  = 1500;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), LIMITS.OR_TIMEOUT_MS);
+
+    let resp;
+    try {
+      resp = await fetch(OR_URL, {
+        method : 'POST',
+        signal : ctrl.signal,
+        headers: {
+          'Content-Type'     : 'application/json',
+          'Authorization'    : `Bearer ${apiKey}`,
+          'HTTP-Referer'     : OR_SITE,
+          'X-Title'          : OR_TITLE,
+        },
+        body: JSON.stringify({
+          model      : OR_MODEL,
+          messages,
+          max_tokens : opts.max_tokens  ?? 2048,
+          temperature: opts.temperature ?? 0.7,
+          stream     : false,
+        }),
+      });
+    } finally {
+      clearTimeout(tid);
+    }
+
+    /* Rate-limit ou overload — retry com backoff */
+    if (resp.status === 429 || resp.status === 503 || resp.status === 529) {
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw new Error(`OpenRouter HTTP ${resp.status} após ${maxRetries} tentativas`);
+    }
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      throw new Error(`OpenRouter HTTP ${resp.status}: ${errText.substring(0, 300)}`);
+    }
+
+    const data = await resp.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content || content.trim().length === 0) throw new Error('resposta vazia do modelo');
+
+    return content.trim();
+  }
+
+  throw new Error('Todas as tentativas falharam');
+}
+
+/* ====================================================================
+   EXTRAIR JSON DE RESPOSTA DO MODELO
+==================================================================== */
+function extrairJSON(texto) {
+  if (!texto) throw new Error('Texto vazio para extrair JSON');
+  /* Remover blocos markdown ```json ... ``` */
+  const semMd = texto.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+  /* Tentar parse directo */
+  try { return JSON.parse(semMd); } catch { /* continua */ }
+  /* Tentar extrair o primeiro objecto ou array */
+  const matchObj = semMd.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+  if (matchObj) {
+    try { return JSON.parse(matchObj[1]); } catch { /* continua */ }
+  }
+  throw new Error('Não foi possível extrair JSON válido da resposta do modelo');
+}

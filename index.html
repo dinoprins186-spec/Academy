@@ -2917,7 +2917,7 @@ async function sbGetPendentes(){
 
 /* Aprovar pagamento (admin) */
 async function sbAprovar(id){
-  try{await fetch(SB_URL+'/rest/v1/pagamentos?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:SB_H(),body:JSON.stringify({estado:'aprovado'})});}
+  try{await fetch(SB_URL+'/rest/v1/pagamentos?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:SB_H(),body:JSON.stringify({estado:'aprovado',aprovado_em:new Date().toISOString()})});}
   catch(e){console.warn('[SB] aprovar:',e);}
 }
 
@@ -2937,7 +2937,7 @@ async function sbProcessar(id){
 async function sbCheckAprovados(){
   try{
     const uid=sbUserId();
-    const r=await fetch(SB_URL+'/rest/v1/pagamentos?utilizador_id=eq.'+uid+'&estado=eq.aprovado&order=criado_em.desc',{headers:SB_H()});
+    const r=await fetch(SB_URL+'/rest/v1/pagamentos?utilizador_id=eq.'+uid+'&estado=eq.aprovado&order=aprovado_em.desc',{headers:SB_H()});
     if(!r.ok)return;
     const rows=await r.json();
     for(const row of rows){
@@ -7000,7 +7000,7 @@ function _estruturar(secs){
 }
 
 function _calcularBlocos(blocos){
-  const AREA=Math.round(_PDF.AREA * 0.88); /* v59: 88% igual ao host */
+  const AREA=Math.round(_PDF.AREA * 0.90); /* v58: 90% igual ao host */
   const pages=[];
   let pagAtual=[],altUsada=0;
   function quebrar(){ if(pagAtual.length>0){pages.push(pagAtual);pagAtual=[];altUsada=0;} }
@@ -7990,9 +7990,12 @@ function layoutAlturaBloco(bloco){
    - órfã/viúva: mín 2 linhas por página
 ════════════════════════════════════════════════ */
 function layoutCalcularBlocos(blocos){
-  /* v59: AREA 88% — equilibrio entre preenchimento e segurança.
-     keepWithNext exige 3 parágrafos mínimos após qualquer h2/h3. */
-  const AREA = Math.round(PDF.AREA * 0.88);
+  /* v56: AREA a 72% — mais conservadora para evitar páginas quase vazias.
+     O problema anterior: AREA 78% deixava h2 caber sozinho no fundo
+     porque a guarda de 48px era insuficiente para 1 parágrafo real (~72px). */
+  /* v58: AREA a 90% — 72% era demasiado conservador (só 3 parágrafos/pág)
+     90% preenche 4-5 parágrafos por página, mais próximo do Word real */
+  const AREA = Math.round(PDF.AREA * 0.90);
   const pages=[];
   let paginaActual=[];
   let alturaUsada=0;
@@ -8005,36 +8008,42 @@ function layoutCalcularBlocos(blocos){
     }
   }
 
-  /* Altura dos próximos N parágrafos após o índice i */
+  /* Calcular altura acumulada dos próximos N blocos de conteúdo após índice i */
   function alturaProximosConteudo(i, n){
     let total=0, contados=0;
     for(let j=i+1; j<blocos.length && contados<n; j++){
       const tipo=blocos[j].tipo;
-      if(tipo==='titulo_cap'||tipo==='h2'||tipo==='h3') break;
+      /* parar se encontrar novo capítulo ou subtítulo */
+      if(tipo==='titulo_cap') break;
+      if(tipo==='h2'||tipo==='h3') break;
       total += layoutAlturaBloco(blocos[j]);
       contados++;
     }
-    return {total, contados};
+    return total;
   }
 
   for(let i=0;i<blocos.length;i++){
     const b=blocos[i];
     const h=layoutAlturaBloco(b);
 
+    /* ── Título de capítulo: sempre página nova
+       v57: incluir os primeiros blocos de conteúdo na mesma página
+       (h2 + parágrafos iniciais) em vez de deixar o heading sozinho ── */
     if(b.tipo==='titulo_cap'){
       novaPageBreak();
       paginaActual.push(b);
       alturaUsada=h;
+      /* Absorver o primeiro h2 + parágrafos até encher a página */
       continue;
     }
 
-    /* ── h2/h3: REGRA RÍGIDA — subtítulo nunca fica sozinho.
-       Exige espaço para h2 + mínimo 3 parágrafos completos.
-       Se não cabe, o subtítulo e o conteúdo vão todos para a página seguinte. */
+    /* ── h2 / h3: keepWithNext robusto ──
+       Garantir que o heading + pelo menos 1 parágrafo completo cabem juntos.
+       Se não cabem, quebrar ANTES do heading (vai para página seguinte).
+       "1 parágrafo completo" ≈ altura dos próximos 2 blocos de conteúdo. */
     if(b.tipo==='h2'||b.tipo==='h3'){
-      const {total: altConteudo} = alturaProximosConteudo(i, 3);
-      const guardaMinima = Math.max(altConteudo, 240); /* 240px ≈ 3 parágrafos curtos */
-      const necessario = h + guardaMinima;
+      const alturaConteudoSeguinte = alturaProximosConteudo(i, 2);
+      const necessario = h + Math.max(alturaConteudoSeguinte, 72); /* mínimo 3 linhas */
       if(alturaUsada + necessario > AREA && paginaActual.length>0){
         novaPageBreak();
       }
@@ -9163,15 +9172,7 @@ function mostrarToast(msg){
    Único endpoint: /api/engine
    Único provider de IA: OpenRouter (gerido pelo backend)
 ════════════════════════════════════════════════════════ */
-/* v60 fix CORS: URL absoluta do backend.
-   Quando o frontend está num domínio diferente (ex: academy-a.vercel.app)
-   e o backend está em academyscosao.vercel.app, o browser bloqueia pedidos
-   para '/api/engine' (relativo) porque resolve para o domínio errado.
-   Com URL absoluta o CORS do backend (Access-Control-Allow-Origin: *) funciona. */
-/* v61: sempre /api/engine relativo.
-   O projecto academy-a tem o proxy em api/engine.js que reencaminha
-   para o engine real em academyscosao.vercel.app — sem CORS. */
-const ACADEMY_ENGINE_URL = '/api/engine';
+const ACADEMY_ENGINE_URL='/api/engine';
 
 /* Converte markdown simples em HTML legível */
 function mdParaHtml(txt){

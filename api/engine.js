@@ -93,7 +93,7 @@ const CONECTORES_PROIBIDOS = [
   'Do exposto decorre que','Perante o analisado,',
 ];
 
-function antiIA(capNum, totalCaps) {
+function antiIA(capNum, totalCaps, geoInstrucao) {
   const n = Math.max(0, (capNum||1) - 1);
   const pick = (arr, s) => arr[(n*7 + s*3) % arr.length];
   const fase = !totalCaps||totalCaps<=1 ? 'análise' :
@@ -106,7 +106,7 @@ function antiIA(capNum, totalCaps) {
 
 TOM E VOZ:
 1. Escreve com VOZ ANALÍTICA — não apenas descrever conceitos, mas comparar, questionar, posicionar
-2. Cada subtópico deve incluir: (a) posição teórica, (b) contraponto ou limitação, (c) aplicação angolana
+2. Cada subtópico deve incluir: (a) posição teórica, (b) contraponto ou limitação, (c) aplicação ao contexto do tema
 3. PROIBIDO usar estes conectores mecânicos que revelam texto IA: "${proibidos}"
 4. PROIBIDO iniciar dois parágrafos consecutivos com a mesma palavra ou estrutura
 5. Para exemplos usa: "${pick(EXEMPLOS,1)}" — nunca a mesma expressão duas vezes no mesmo capítulo
@@ -119,10 +119,7 @@ CITAÇÕES — OBRIGATÓRIO:
 10. Não escrever "segundo dados do INE" sem especificar o ano: "segundo INE (2023)"
 11. Mínimo 2 citações por parágrafo de desenvolvimento — integradas no argumento, não no fim
 
-ANGOLA ESPECÍFICO:
-12. PROIBIDO usar "Brasil", "Portugal", "Europa" como referência principal
-13. Angola sempre com especificidade: "Luanda (2021)", "MINSA (2022)", "INE (2023)", "BNA (2023)"
-14. Pelo menos 1 dado quantitativo angolano verificável por subtópico
+CONTEXTO GEOGRÁFICO: ${geoInstrucao}
 
 POSIÇÃO NO DOCUMENTO: ${fase} — adequa profundidade analítica`;
 }
@@ -130,12 +127,12 @@ POSIÇÃO NO DOCUMENTO: ${fase} — adequa profundidade analítica`;
 /* ---------------- PERFIS POR NÍVEL ---------------- */
 const PERFIL_NIVEL = {
   'ensino médio': {
-    profundidade: `Linguagem clara para estudantes 14-18 anos. Conceitos desde o básico. Para Ciências: fórmulas básicas com cada variável explicada. Exemplos do quotidiano angolano reconhecíveis. 3-4 parágrafos densos por subtópico.`,
+    profundidade: `Linguagem clara para estudantes 14-18 anos. Conceitos desde o básico. Para Ciências: fórmulas básicas com cada variável explicada. Exemplos reconhecíveis do contexto do tema. 3-4 parágrafos densos por subtópico.`,
     citacoes: `1-2 citações por subtópico formato (Apelido, Ano). Exemplo: "Segundo Cardoso (2019),..." ou "...processo fundamental (Lima & Santos, 2020)."`,
     refs_min: 8, refs_africanos: 2,
   },
   'licenciatura': {
-    profundidade: `Nível universitário 1º ciclo. Rigor conceptual. Análise crítica: comparar perspectivas de pelo menos 2 autores. Dados estatísticos e factos angolanos verificáveis com anos e instituições. 4-5 parágrafos densos por subtópico.`,
+    profundidade: `Nível universitário 1º ciclo. Rigor conceptual. Análise crítica: comparar perspectivas de pelo menos 2 autores. Dados estatísticos e factos verificáveis com anos e instituições (contexto do tema). 4-5 parágrafos densos por subtópico.`,
     citacoes: `2-3 citações por subtópico. Exemplos: "De acordo com Ferreira (2021),..." / "(Neto, 2019; Costa, 2022)." / "Silva (2020, p.45) argumenta que..." OBRIGATÓRIO: pelo menos 1 citação no meio de cada parágrafo principal, não apenas no fim.`,
     refs_min: 10, refs_africanos: 3,
   },
@@ -241,6 +238,33 @@ function detectarArea(tema, areaParam) {
   return 'humanidades';
 }
 
+/* v68: Detectar se o tema tem contexto geográfico explícito.
+   Se tem → usar esse contexto.
+   Se não tem → contexto global, sem forçar Angola. */
+function detectarContextoGeo(tema, pais) {
+  const t = (tema||'').toLowerCase();
+  const p = (pais||'').toLowerCase();
+
+  /* País/região explicitamente no tema */
+  if (/angola|luanda|benguela|huambo|cabinda|namibe|malanje/.test(t)) return 'angola';
+  if (/cabo.?verde|mindelo|praia|fogo|sal\b|barlavento/.test(t)) return 'cabo_verde';
+  if (/moçambique|mozambique|maputo|beira\b|nampula/.test(t)) return 'mocambique';
+  if (/brasil|são paulo|rio de janeiro|brasília|nordeste/.test(t)) return 'brasil';
+  if (/portugal|lisboa|porto\b|coimbra|algarve/.test(t)) return 'portugal';
+  if (/africa do sul|joanesburgo|cape town|pretória/.test(t)) return 'africa_sul';
+  if (/estados unidos|eua|usa|new york|washington|california/.test(t)) return 'eua';
+  if (/europa|ue\b|união europeia|berlim|paris|madrid|roma\b/.test(t)) return 'europa';
+  if (/china|beijing|xangai|asia\b|japão|índia/.test(t)) return 'asia';
+  if (/africa\b|africano|subsaariana|continente africano/.test(t)) return 'africa_geral';
+
+  /* País nas configurações do utilizador */
+  if (p && p !== 'angola') return p;
+  if (p === 'angola') return 'angola';
+
+  /* Sem contexto geográfico → global */
+  return 'global';
+}
+
 /* ---------------- TRUNCAR ---------------- */
 function truncar(texto, max) {
   if (!texto) return texto;
@@ -340,11 +364,15 @@ async function doCapitulo(p) {
   const palavrasCalc = Math.round(((totalPags-2)*370) / totalCaps);
   const palavras = Math.min(Math.max(parseInt(p.palavrasPorCap)||palavrasCalc, 150), 2000);
 
-  /* Perfis */
+  /* Perfis v68: contexto geográfico dinâmico */
   const nivelKey  = detectarNivel(nivel);
   const areaKey   = detectarArea(tema, p.area);
   const pNivel    = PERFIL_NIVEL[nivelKey];
   const pArea     = PERFIL_AREA[areaKey];
+  const geoCtx    = detectarContextoGeo(tema, p.pais);
+  const isAngola  = geoCtx === 'angola';
+  const isCabVerde= geoCtx === 'cabo_verde';
+  const isGlobal  = geoCtx === 'global';
 
   /* Subtópicos */
   const subs = capSubs.map((s,i) => `${capNum}.${i+1} ${s}`).join('\n') ||
@@ -356,6 +384,18 @@ async function doCapitulo(p) {
   const maxTok = Math.min(Math.max(Math.round(palavras*1.7), 500), 8000);
 
   /* v67: abordagem analítica por posição do capítulo */
+  /* v68: instrução geográfica dinâmica */
+  let geoInstrucao;
+  if(isAngola){
+    geoInstrucao = 'Angola é o contexto central. Especifica sempre: "Luanda (2021)", "MINSA (2022)", "INE (2023)". Pelo menos 1 dado angolano verificável por subtópico.';
+  } else if(isCabVerde){
+    geoInstrucao = 'Cabo Verde é o contexto central. Usa referências cabo-verdianas: INE Cabo Verde, BCV, dados das ilhas. Especifica sempre o ano.';
+  } else if(isGlobal){
+    geoInstrucao = 'O tema é global. Usa referências internacionais da área. NÃO forces Angola, Brasil ou qualquer país específico. Adapta os exemplos ao tema de forma universal.';
+  } else {
+    geoInstrucao = `O contexto geográfico é "${geoCtx}". Usa referências e exemplos desse contexto. Especifica sempre o país, a instituição e o ano nos dados citados.`;
+  }
+
   const abordagemAnalitica = [
     `Abordagem histórico-crítica: traça a evolução do conceito com datas angolanas concretas, questiona a narrativa dominante, propõe leitura alternativa fundamentada.`,
     `Abordagem teórico-comparativa: confronta pelo menos 2 perspectivas teóricas divergentes, posiciona o argumento, aplica ao contexto angolano com dados específicos.`,
@@ -398,7 +438,7 @@ FORMATAÇÃO OBRIGATÓRIA:
 - Português formal angolano
 - ⚠ LIMITE: ${palavras} PALAVRAS — PÁRA ao atingir este limite
 ${p.instrucaoSubtitulos ? '\n' + p.instrucaoSubtitulos : ''}
-${antiIA(capNum, totalCaps)}
+${antiIA(capNum, totalCaps, geoInstrucao)}
 
 Escreve o capítulo completo agora.`;
 
@@ -479,6 +519,12 @@ async function doReferencias(p) {
   const areaKey  = detectarArea(tema, p.area);
   const pNivel   = PERFIL_NIVEL[nivelKey];
   const pArea    = PERFIL_AREA[areaKey];
+  const geoCtxR  = detectarContextoGeo(tema, p.pais);
+  const geoRefsInstrucao = geoCtxR === 'angola'
+    ? `Inclui pelo menos ${pNivel.refs_africanos} autores angolanos/africanos e 2 fontes primárias angolanas (INE, BNA, MINSA, legislação angolana).`
+    : geoCtxR === 'global'
+    ? `As referências devem ser internacionais, de revistas académicas reconhecidas na área. NÃO forces referências angolanas ou de qualquer país específico.`
+    : `Inclui referências do contexto "${geoCtxR}" quando disponíveis, combinadas com literatura internacional da área.`;
 
   const prompt = `Escreve as Referências Bibliográficas para um ${tipo} de nível ${nivel} sobre "${tema}".
 
@@ -491,7 +537,7 @@ REGRAS ABSOLUTAS:
 - PROIBIDO referências fora da área temática
 - Ordenadas alfabeticamente pelo apelido
 - Sem numeração, sem bullets — uma referência por parágrafo com linha em branco entre cada
-- Incluir pelo menos 2 fontes primárias angolanas: INE, BNA, MINSA, legislação angolana quando relevante
+- ${geoRefsInstrucao}
 - As referências devem ser reais e verificáveis
 
 Escreve APENAS as referências, sem título nem introdução.`;

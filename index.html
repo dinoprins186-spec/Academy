@@ -4905,7 +4905,27 @@ function sEditor(secsArg,cfgArg,qualArg,isEx){
     <div class="stat-pill" style="margin-left:auto"><span class="etq etq-b" style="font-size:8px">${cfg.refStyle||'APA'}</span></div>
   </div>
 
-  <!-- Botões de acção -->
+  <!-- Botões de acção com scores de qualidade -->
+  ${!isEx && E._docHealth ? `
+  <div style="background:var(--z3);border-radius:var(--r2);padding:8px 10px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
+    <div style="flex:1">
+      <div style="font-family:var(--fm);font-size:8px;color:var(--t3);margin-bottom:3px">ANTES DE DESCARREGAR</div>
+      <div style="display:flex;gap:8px">
+        ${[['Saúde',E._docHealth.health,'#16a34a','#d97706','#dc2626'],
+           ['Confiança',E._docHealth.confidence,null,null,null],
+           ['Completude',E._docHealth.completeness?.completeness,null,null,null]
+          ].filter(x=>x[1]!=null).map(([lbl,val])=>{
+            const cor=val>=85?'#16a34a':val>=65?'#d97706':'#dc2626';
+            return `<div style="text-align:center"><div style="font-family:var(--fm);font-size:11px;font-weight:700;color:${cor}">${val}</div><div style="font-family:var(--fm);font-size:7px;color:var(--t4)">${lbl}</div></div>`;
+          }).join('')}
+        <div style="margin-left:auto;display:flex;align-items:center">
+          <div style="font-family:var(--fm);font-size:8px;padding:3px 8px;border-radius:20px;background:${E._docHealth.readiness.ready?'#16a34a18':'#dc262618'};color:${E._docHealth.readiness.ready?'#16a34a':'#dc2626'}">
+            ${E._docHealth.readiness.ready?'✓ Pronto':'⚠ Rever'}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>` : ''}
   <div style="display:flex;gap:8px;margin-bottom:10px">
     <button class="btn B s" style="flex:1" onclick="${isEx?'expPDF(\''+isEx.id+'\')':'expPDF(null)'}">📄 PDF</button>
     <button class="btn G s" style="flex:1" onclick="${isEx?'expDocx(\''+isEx.id+'\')':'expDocx(null)'}">📝 DOCX</button>
@@ -4985,11 +5005,354 @@ function sEditor(secsArg,cfgArg,qualArg,isEx){
   </div>`).join('')}
 
   <div id="graficosContainer"></div>
+  <div id="docHealthPanel">${E._docHealth ? _renderDocHealthPanel(E._docHealth) : ''}</div>
   ${!isEx ? _renderPanelPostextuais(cfg) : ''}
   ${RODAPE_HTML}`;
 }
 
 /* Painel de pós-textuais visível no sEditor após a geração */
+/* ════════════════════════════════════════════════
+   DOCUMENT HEALTH GLOBAL — v72
+   Agrega health de todos os capítulos gerados.
+   Calcula Readiness Score do documento completo.
+════════════════════════════════════════════════ */
+function _calcularHealthGlobal(){
+  if(!E.secs||!E.secs.length) return;
+  const geradas = E.secs.filter(s => s.e === 'p');
+  if(!geradas.length) return;
+
+  /* ── Health médio ponderado ── */
+  const comHealth = geradas.filter(s => s.health);
+  const healthMedio = comHealth.length
+    ? Math.round(comHealth.reduce((acc,s) => acc + (s.health.health||0), 0) / comHealth.length)
+    : 70;
+
+  /* ── Confidence médio ── */
+  const comConf = geradas.filter(s => s.confidence);
+  const confMedio = comConf.length
+    ? Math.round(comConf.reduce((acc,s) => acc + (s.confidence.confidence||0), 0) / comConf.length)
+    : null;
+
+  /* ── Agregar issues com severidade ── */
+  const todosIssues = [];
+
+  /* v74: associar acções correctivas aos issues */
+  function _issueAction(code){
+    const MAP = {
+      NO_REFERENCES   : {label:'Gerar referências',    acao:'gerar_capitulo_referencias', auto:true},
+      EMPTY_SECTIONS  : {label:'Regenerar capítulo',   acao:'regenerar_capitulo',         auto:false},
+      SHORT_PARAGRAPHS: {label:'Enriquecer capítulo',  acao:'editar_texto',               auto:true},
+      AST_REPAIRED    : {label:'Regenerar capítulo',   acao:'regenerar_capitulo',         auto:false},
+      NO_CONCLUSION   : {label:'Gerar conclusão',      acao:'gerar_capitulo',             auto:false},
+      NO_INTRODUCTION : {label:'Gerar introdução',     acao:'gerar_capitulo',             auto:false},
+    };
+    return MAP[code]||null;
+  }
+
+  /* Checks document-level */
+  const isRef = cap => /refer[eê]ncias|bibliograf/i.test(cap.titulo||'');
+  const temRef = geradas.some(s => isRef(s));
+  const temIntro = geradas.some(s => /introd/i.test(s.titulo||''));
+  const temConcl = geradas.some(s => /conclu|conside/i.test(s.titulo||''));
+
+  if(!temRef)   todosIssues.push({ severity:'blocker', code:'NO_REFERENCES',    message:'Referências bibliográficas ausentes', cap:null });
+  if(!temIntro) todosIssues.push({ severity:'warning', code:'NO_INTRODUCTION',  message:'Introdução não detectada', cap:null });
+  if(!temConcl) todosIssues.push({ severity:'warning', code:'NO_CONCLUSION',    message:'Conclusão não detectada', cap:null });
+
+  /* Issues por capítulo */
+  geradas.forEach(s => {
+    (s.health?.issues||[]).forEach(iss => todosIssues.push({...iss, cap:`Cap. ${s.num}`}));
+    if(s.readiness && !s.readiness.ready)
+      (s.readiness.blockers||[]).forEach(b => todosIssues.push({severity:'blocker', message:b, cap:`Cap. ${s.num}`}));
+  });
+
+  /* ── Checks positivos ── */
+  const positivos = [];
+  if(geradas.length === E.secs.length) positivos.push('Todos os capítulos gerados');
+  if(temRef)   positivos.push('Referências bibliográficas presentes');
+  if(temIntro) positivos.push('Introdução presente');
+  if(temConcl) positivos.push('Conclusão presente');
+  if(!todosIssues.some(i=>i.severity==='blocker')) positivos.push('Sem erros bloqueadores');
+
+  /* ── Readiness document-level ── */
+  const blockers = todosIssues.filter(i=>i.severity==='blocker');
+  const warnings = todosIssues.filter(i=>i.severity==='warning');
+
+  E._docHealth = {
+    health    : healthMedio,
+    confidence: confMedio,
+    issues    : todosIssues,
+    positivos,
+    label     : healthMedio>=85?'Saudável':healthMedio>=60?'Aceitável':'Necessita revisão',
+    readiness : {
+      ready   : blockers.length === 0,
+      verdict : blockers.length === 0 ? 'Pronto para entrega' : 'Requer atenção antes de entregar',
+      blockers: blockers.map(b=>b.cap?`${b.cap}: ${b.message}`:b.message),
+      warnings: warnings.map(w=>w.cap?`${w.cap}: ${w.message}`:w.message),
+    },
+    chapter_scores: geradas.map(s=>({
+      num         : s.num,
+      titulo      : s.titulo,
+      health      : s.health?.health||null,
+      confidence  : s.confidence?.confidence||null,
+      completeness: s.completeness?.completeness||null,
+      ready       : s.readiness?.ready!==false,
+    })),
+    /* v74: Completeness document-level */
+    completeness: (()=>{
+      const comC = geradas.filter(s=>s.completeness);
+      if(!comC.length) return null;
+      const avg = Math.round(comC.reduce((a,s)=>a+(s.completeness.completeness||0),0)/comC.length);
+      const dims = {};
+      ['paginas','densidade','cobertura','profundidade'].forEach(d=>{
+        const vals = comC.map(s=>s.completeness.dimensoes?.[d]||0);
+        dims[d] = Math.round(vals.reduce((a,v)=>a+v,0)/vals.length);
+      });
+      const totalWords = comC.reduce((a,s)=>a+(s.completeness.palavras||0),0);
+      return {
+        completeness: avg,
+        label: avg>=85?'Completo':avg>=65?'Parcial':'Superficial',
+        dimensoes: dims,
+        palavras_totais: totalWords,
+        paginas_est: Math.round(totalWords/370*10)/10,
+      };
+    })(),
+  };
+
+  const el = document.getElementById('docHealthPanel');
+  if(el) el.innerHTML = _renderDocHealthPanel(E._docHealth);
+}
+
+function _renderDocHealthPanel(h){
+  if(!h) return '';
+  const corH = h.health>=85?'#16a34a':h.health>=60?'#d97706':'#dc2626';
+  const corR = h.readiness.ready?'#16a34a':'#dc2626';
+  const corC = h.confidence==null?null:h.confidence>=80?'#16a34a':h.confidence>=60?'#d97706':'#dc2626';
+  const corCp= h.completeness?.completeness==null?null:h.completeness.completeness>=85?'#16a34a':h.completeness.completeness>=65?'#d97706':'#dc2626';
+  const blockers = (h.issues||[]).filter(i=>i.severity==='blocker');
+  const warnings = (h.issues||[]).filter(i=>i.severity==='warning');
+  const dims = h.completeness?.dimensoes||{};
+
+  /* Botões de acção para issues */
+  function btnAccao(issue){
+    if(!issue.action) return '';
+    const capId = issue.cap ? `data-cap="${issue.cap}"` : '';
+    return `<button class="btn G s" style="font-size:8px;padding:3px 8px;margin-top:3px" ${capId}
+      onclick="_executarAccaoIssue('${issue.code}','${issue.cap||''}','${issue.action?.acao||''}')"
+      title="${issue.action.label}">
+      ${issue.action.auto?'⚡ ':'→ '}${issue.action.label}
+    </button>`;
+  }
+
+  return `
+  <div style="padding:12px 14px;background:var(--z2);border:1px solid var(--e0);border-radius:var(--r);margin-bottom:12px">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="font-family:var(--fm);font-size:8px;color:var(--t3);letter-spacing:.1em">QUALIDADE DO DOCUMENTO</div>
+      <div style="font-family:var(--fm);font-size:8px;padding:3px 10px;border-radius:20px;background:${corR}18;color:${corR};font-weight:600">
+        ${h.readiness.ready?'✓ Pronto para entrega':'⚠ Requer atenção'}
+      </div>
+    </div>
+
+    <!-- 4 Scores explicáveis -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px">
+      <div style="background:var(--z3);border-radius:var(--r2);padding:8px;text-align:center">
+        <div style="font-size:18px;font-weight:700;color:${corH};font-family:var(--fm);line-height:1">${h.health}</div>
+        <div style="font-family:var(--fm);font-size:7px;color:var(--t4);margin-top:2px;letter-spacing:.06em">SAÚDE</div>
+      </div>
+      ${h.confidence!=null?`
+      <div style="background:var(--z3);border-radius:var(--r2);padding:8px;text-align:center">
+        <div style="font-size:18px;font-weight:700;color:${corC};font-family:var(--fm);line-height:1">${h.confidence}</div>
+        <div style="font-family:var(--fm);font-size:7px;color:var(--t4);margin-top:2px;letter-spacing:.06em">CONFIANÇA</div>
+      </div>`:'<div></div>'}
+      ${h.completeness!=null?`
+      <div style="background:var(--z3);border-radius:var(--r2);padding:8px;text-align:center">
+        <div style="font-size:18px;font-weight:700;color:${corCp};font-family:var(--fm);line-height:1">${h.completeness.completeness}</div>
+        <div style="font-family:var(--fm);font-size:7px;color:var(--t4);margin-top:2px;letter-spacing:.06em">COMPLETUDE</div>
+      </div>`:'<div></div>'}
+      <div style="background:var(--z3);border-radius:var(--r2);padding:8px;text-align:center">
+        <div style="font-size:18px;font-weight:700;color:${corR};font-family:var(--fm);line-height:1">${h.readiness.ready?'✓':'✗'}</div>
+        <div style="font-family:var(--fm);font-size:7px;color:var(--t4);margin-top:2px;letter-spacing:.06em">ENTREGA</div>
+      </div>
+    </div>
+
+    <!-- Completeness detalhado (explicabilidade) -->
+    ${h.completeness?.dimensoes?`
+    <div style="background:var(--z3);border-radius:var(--r2);padding:10px;margin-bottom:10px">
+      <div style="font-family:var(--fm);font-size:8px;color:var(--t3);margin-bottom:6px">COMPLETUDE — ${h.completeness.label} · ~${h.completeness.paginas_est} páginas · ${h.completeness.palavras_totais} palavras</div>
+      ${[['Páginas','paginas'],['Densidade','densidade'],['Cobertura','cobertura'],['Profundidade','profundidade']].map(([lbl,key])=>{
+        const val=dims[key]||0;
+        const cor2=val>=85?'#16a34a':val>=60?'#d97706':'#dc2626';
+        const pct=Math.round(val);
+        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+          <div style="font-family:var(--fm);font-size:8px;color:var(--t3);width:68px">${lbl}</div>
+          <div style="flex:1;height:4px;background:var(--e0);border-radius:2px;overflow:hidden">
+            <div style="height:4px;width:${pct}%;background:${cor2};border-radius:2px;transition:width .4s"></div>
+          </div>
+          <div style="font-family:var(--fm);font-size:8px;color:${cor2};width:28px;text-align:right">${pct}</div>
+        </div>`;
+      }).join('')}
+    </div>`:''}
+
+    <!-- Checks positivos -->
+    ${(h.positivos||[]).length>0?`
+    <div style="margin-bottom:8px">
+      ${h.positivos.map(p=>`
+      <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+        <div style="font-size:9px;color:#16a34a">✓</div>
+        <div style="font-family:var(--fm);font-size:9px;color:var(--t2)">${p}</div>
+      </div>`).join('')}
+    </div>`:''}
+
+    <!-- Issues com acções -->
+    ${(h.issues||[]).length>0?`
+    <div style="border-top:.5px solid var(--e0);padding-top:8px">
+      ${(h.issues||[]).slice(0,5).map(iss=>{
+        const corI=iss.severity==='blocker'?'#dc2626':iss.severity==='warning'?'#d97706':'#6b7280';
+        const icon=iss.severity==='blocker'?'✗':iss.severity==='warning'?'⚠':'ℹ';
+        return `<div style="padding:5px 0;border-bottom:.5px solid var(--e0)">
+          <div style="display:flex;gap:6px;align-items:flex-start">
+            <div style="font-size:9px;color:${corI};flex-shrink:0;margin-top:1px">${icon}</div>
+            <div style="flex:1">
+              <div style="font-family:var(--fm);font-size:8px;color:var(--t2);line-height:1.4">
+                ${iss.cap?`<span style="color:var(--t3)">${iss.cap}</span> — `:''}${iss.message}
+              </div>
+              ${iss.action?`<button class="btn G s" style="font-size:8px;padding:2px 8px;margin-top:3px"
+                onclick="_executarAccaoIssue('${iss.code||''}','${iss.cap||''}','${iss.action?.acao||''}')"
+                title="${iss.action.label}">${iss.action.auto?'⚡ ':''}${iss.action.label}</button>`:''}
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`:''}
+
+    <!-- Chapter scores mini -->
+    ${(h.chapter_scores||[]).length>1?`
+    <div style="border-top:.5px solid var(--e0);padding-top:8px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+      ${h.chapter_scores.map(c=>{
+        const hv=c.health;
+        const cv=c.completeness;
+        const cor2=hv==null?'var(--t4)':hv>=85?'#16a34a':hv>=60?'#d97706':'#dc2626';
+        return `<div style="font-family:var(--fm);font-size:8px;background:var(--z3);padding:2px 7px;border-radius:20px;color:${cor2}" title="Saúde:${hv||'—'} Completude:${cv||'—'}">
+          Cap.${c.num}${hv!=null?' '+hv:''}${!c.ready?' ⚠':''}
+        </div>`;
+      }).join('')}
+    </div>`:''}
+
+  </div>`;
+}
+
+
+/* ════════════════════════════════════════════════
+   ACÇÕES CORRECTIVAS — v74
+   Executadas a partir do painel de qualidade
+════════════════════════════════════════════════ */
+function _executarAccaoIssue(code, capLabel, acao){
+  /* Encontrar o capítulo pelo label (ex: "Cap. 3") */
+  const capNum = parseInt((capLabel||'').replace(/[^0-9]/g,''))||null;
+  const capIdx = capNum ? E.secs.findIndex(s => s.num === capNum) : -1;
+
+  if(acao === 'gerar_capitulo_referencias'){
+    /* Gerar/regenerar referências */
+    const refIdx = E.secs.findIndex(s => /refer[eê]|bibliog/i.test(s.titulo||''));
+    if(refIdx >= 0){
+      mostrarToast('⏳ A regenerar referências…');
+      _regenerarCapitulo(refIdx);
+    } else {
+      mostrarToast('⚠ Capítulo de referências não encontrado.');
+    }
+    return;
+  }
+
+  if(acao === 'regenerar_capitulo' && capIdx >= 0){
+    mostrarToast(`⏳ A regenerar Cap. ${capNum}…`);
+    _regenerarCapitulo(capIdx);
+    return;
+  }
+
+  if(acao === 'editar_texto' && capIdx >= 0){
+    mostrarToast(`⏳ A enriquecer Cap. ${capNum}…`);
+    _enriquecerCapitulo(capIdx);
+    return;
+  }
+
+  mostrarToast('⚠ Acção não disponível para este issue.');
+}
+
+async function _regenerarCapitulo(idx){
+  if(idx < 0 || idx >= E.secs.length) return;
+  const cap = E.est[idx];
+  if(!cap) return;
+
+  E.secs[idx].e = 'g';
+  aSecDOM(idx,'g','A regenerar…');
+
+  try{
+    const tp = TIPOS.find(t=>t.id===E.cfg.tipo)||{n:'Trabalho Académico'};
+    const raw = await callAcademyAPI({
+      acao: 'regenerar_capitulo',
+      tema: E.cfg.tema, tipoTrabalho: tp.n, nivel: E.cfg.nivel,
+      totalPags: E.cfg.pags||15, capNum: cap.num, capTitulo: cap.titulo,
+      capSubs: cap.subs||[], totalCaps: E.est.length,
+    });
+
+    let textoFinal = '[Secção não regenerada]';
+    let astFinal   = null;
+    const _rawVal  = raw?.resposta ?? raw;
+
+    if(_rawVal && typeof _rawVal === 'object' && _rawVal.sections){
+      astFinal   = _rawVal;
+      textoFinal = astParaTexto(_rawVal);
+    } else if(typeof _rawVal === 'string'){
+      textoFinal = _rawVal;
+    }
+
+    E.secs[idx].e          = 'p';
+    E.secs[idx].c          = textoFinal;
+    E.secs[idx].ast        = astFinal;
+    E.secs[idx].health     = raw?.health     || null;
+    E.secs[idx].readiness  = raw?.readiness  || null;
+    E.secs[idx].confidence = raw?.confidence || null;
+    E.secs[idx].completeness= raw?.completeness || null;
+
+    aSecDOM(idx,'p','✓ Regenerado', textoFinal);
+    _calcularHealthGlobal();
+    autoGuardar();
+    mostrarToast('✓ Capítulo regenerado.');
+  } catch(e){
+    E.secs[idx].e = 'e';
+    aSecDOM(idx,'e','Erro: '+e.message);
+    mostrarToast('✗ Erro ao regenerar: '+e.message);
+  }
+}
+
+async function _enriquecerCapitulo(idx){
+  if(idx < 0 || idx >= E.secs.length) return;
+  const sec = E.secs[idx];
+  if(!sec?.c) return;
+
+  E.secs[idx].e = 'g';
+  aSecDOM(idx,'g','A enriquecer…');
+
+  try{
+    const texto = await callAcademyAPI({
+      acao: 'editar_texto', texto: sec.c.substring(0,3000),
+      subacao: 'expandir',
+    });
+    E.secs[idx].c = typeof texto === 'string' ? texto : sec.c;
+    E.secs[idx].e = 'p';
+    aSecDOM(idx,'p','✓ Enriquecido', E.secs[idx].c);
+    _calcularHealthGlobal();
+    autoGuardar();
+    mostrarToast('✓ Capítulo enriquecido.');
+  } catch(e){
+    E.secs[idx].e = 'p'; /* restaurar estado */
+    aSecDOM(idx,'p','✓ PRONTO', sec.c);
+    mostrarToast('✗ Erro ao enriquecer.');
+  }
+}
+
 function _renderPanelPostextuais(cfg){
   if(!cfg) return '';
   const pt = cfg.postextuais||[];
@@ -8681,9 +9044,10 @@ function _truncarRunningHead(txt, maxChars) {
 }
 
 function layoutRenderPagina(blocosDaPagina, opts){
-  const{num,total,titulo,isCapa,isTOC,watermark}=opts;
+  const{num,total,titulo,isCapa,isTOC,watermark,paginaRomana,semNumero,nomeCap:nomeCapOpts}=opts;
   const exibirHeader=!isCapa&&!isTOC;
   const exibirFooter=!isCapa;
+  const numDisplay = semNumero ? '' : paginaRomana ? paginaRomana : String(num);
   /* v51: truncamento inteligente por palavras para ambos os campos */
   const tituloAbrev = _truncarRunningHead(titulo || 'ACADEMY', 40);
   /* Nome do capítulo actual para cabeçalho (1º título_cap da página ou o passado) */
@@ -8709,8 +9073,10 @@ function layoutRenderPagina(blocosDaPagina, opts){
   ${exibirFooter?`
   <div class="pag-footer-linha"></div>
   <div class="pag-footer">
-    ${isTOC?'<span>ÍNDICE</span><span style="font-style:normal">— ii —</span><span></span>'
-           :`<span></span><span>— ${num} —</span><span></span>`}
+    ${semNumero ? '<span></span><span></span><span></span>'
+    : isTOC     ? `<span></span><span style="font-style:italic">— ${paginaRomana||'ii'} —</span><span></span>`
+    : paginaRomana ? `<span></span><span style="font-style:italic">— ${paginaRomana} —</span><span></span>`
+                 : `<span></span><span>— ${num} —</span><span></span>`}
   </div>`:''}
 
 </div>`;
@@ -8721,6 +9087,7 @@ function renderPagina(conteudoHtml, opts){
   const{num,total,titulo,cabecalho,isCapa,isTOC,watermark}=opts;
   const exibirHeader=!isCapa&&!isTOC;
   const exibirFooter=!isCapa;
+  const numDisplay = semNumero ? '' : paginaRomana ? paginaRomana : String(num);
   /* v51: truncamento inteligente por palavras */
   const tituloAbrev = _truncarRunningHead(titulo||'ACADEMY', 40);
   const cabecalhoAbrev = _truncarRunningHead(cabecalho||'', 32);
@@ -8738,8 +9105,10 @@ function renderPagina(conteudoHtml, opts){
   ${exibirFooter?`
   <div class="pag-footer-linha"></div>
   <div class="pag-footer">
-    ${isTOC?'<span>ÍNDICE</span><span style="font-style:normal">— ii —</span><span></span>'
-           :`<span></span><span>— ${num} —</span><span></span>`}
+    ${semNumero ? '<span></span><span></span><span></span>'
+    : isTOC     ? `<span></span><span style="font-style:italic">— ${paginaRomana||'ii'} —</span><span></span>`
+    : paginaRomana ? `<span></span><span style="font-style:italic">— ${paginaRomana} —</span><span></span>`
+                 : `<span></span><span>— ${num} —</span><span></span>`}
   </div>`:''}
 
 </div>`;
@@ -8897,95 +9266,116 @@ function montarDocumentoPDF(secs,meta){
   const data=new Date().toLocaleDateString('pt-PT',{year:'numeric',month:'long'});
   const metaC={...meta,data};
   const wm=!!meta.watermark;
+  const cfgDoc = meta.cfg || E.cfg || {};
 
-  /* Limpar cache entre gerações */
+  /* Limpar cache */
   _alturaCache.clear();
 
-  /* 1. Estruturar semanticamente */
-  const blocos=docEstruturarSemantico(secs);
-
-  /* 2. Distribuir por páginas — v64: Pre-Render Layout Layer
-     Strangler pattern: substitui layoutCalcularBlocos pelo pipeline
-     grupo semântico → constraints → páginas */
+  /* 1. Estruturar + paginar */
+  const blocos = docEstruturarSemantico(secs);
   const paginasDeBlocos = preRenderPipeline(blocos);
-
-  /* 2b. v48: Validar anomalias (não bloqueia — apenas loga) */
   layoutValidarDocumento(paginasDeBlocos, blocos);
 
-  /* 3. TOC REAL — páginas reais calculadas a partir da distribuição */
-  const mapaCapTOC=layoutGerarTOCReal(paginasDeBlocos);
-
-  const totalPgs=2+paginasDeBlocos.length;
-
-  /* 4. Renderizar todas as páginas */
-  const paginas=[];
-
-  /* Capa */
-  paginas.push(renderPagina(htmlCapa(metaC),{num:1,total:totalPgs,titulo,isCapa:true,watermark:wm}));
-
-  /* v68: Elementos pré-textuais (dedicatória, agradecimentos, epígrafe) */
-  const pretexts = htmlPretextuais(meta.cfg || E.cfg || {});
-  pretexts.forEach((html, pi) => {
-    paginas.push(renderPagina(html, {num:2+pi, total:totalPgs, titulo, isCapa:false, watermark:wm}));
-  });
-  const offsetTOC = 1 + pretexts.length; /* capa + pré-textuais */
-
-  /* TOC */
-  paginas.push(renderPagina(htmlTOC(mapaCapTOC),{num:1+offsetTOC,total:totalPgs,titulo,isTOC:true,watermark:wm}));
-
-  /* Conteúdo — v70: filtrar páginas vazias */
+  /* 2. Filtrar páginas vazias */
   const _pgsValidas = paginasDeBlocos.filter(pg =>
     pg && pg.some(b => ['titulo_cap','h2','h3','paragrafo','ref_item'].includes(b.tipo))
   );
-  let nomeCap='';
-  for(let pi=0;pi<_pgsValidas.length;pi++){
-    const pg=_pgsValidas[pi];
-    const tc=pg.find(b=>b.tipo==='titulo_cap');
-    if(tc) nomeCap=tc.titulo;
-    const pgN=2+offsetTOC+pi;
-    paginas.push(layoutRenderPagina(pg,{num:pgN,total:totalPgs,titulo,nomeCap:tc?'':nomeCap,watermark:wm}));
-  }
 
-  /* v71: Media por página específica
-     - Items com pag definida → inseridos na página correcta (após renderização)
-     - Items sem pag → vão para secção Anexos no final (só se existirem) */
-  const _allMedia = (meta.cfg || E.cfg || {}).mediaItems || [];
-  const _mediaSemPag = _allMedia.filter(m => !m.pag);
+  /* 3. Calcular offset real
+     Estrutura: Capa(1) + PréTextuais(n) + TOC(1) + ListaFig(0/1) + ListaTab(0/1)
+     Depois: Conteúdo com numeração arábica a partir de 1 */
+  const pretexts = htmlPretextuais(cfgDoc);
+  const mediaItems75 = cfgDoc.mediaItems || [];
+  const { figuras: figList, tabelas: tabList } = extrairMediaParaListas(mediaItems75);
+  const nPretexts = pretexts.length;
+  const nListas   = (figList.length > 0 ? 1 : 0) + (tabList.length > 0 ? 1 : 0);
+  /* Número de páginas antes do conteúdo arábico */
+  const nPaginasRomanas = nPretexts + 1 + nListas; /* pré-textuais + TOC + listas */
 
-  /* Inserir media com página definida directamente nas páginas de conteúdo */
-  const _mediaComPag = _allMedia.filter(m => m.pag);
-  _mediaComPag.forEach(item => {
-    /* Página 1=capa, 2=TOC → offset de conteúdo começa em 3 */
-    const pagIdx = Math.max(0, (item.pag || 3) - 3);
-    const pgAlvo = paginas[Math.min(pagIdx + 2 + pretexts.length, paginas.length - 1)];
-    /* Injectar HTML da imagem/gráfico no HTML da página alvo */
-    if(pgAlvo){
-      const mediaHtml = htmlMediaItem(item, _mediaComPag.indexOf(item)+1);
-      /* Adicionar após o último parágrafo da página */
-      pgAlvo.innerHTML = (pgAlvo.innerHTML||'') + mediaHtml;
-    }
+  /* 4. TOC com páginas reais (arábico, começa em 1) */
+  const mapaCapTOC = layoutGerarTOCReal(_pgsValidas, 1);
+
+  /* 5. Total real de páginas */
+  const nMediaSemPag = mediaItems75.filter(m=>!m.pag).length;
+  const nPostex = (cfgDoc.postextuais||[]).length > 0 ? 1 : 0;
+  const totalPgsReal = 1 + nPaginasRomanas + _pgsValidas.length + (nMediaSemPag>0?1:0) + nPostex + 1; /* +1 contracapa */
+
+  /* 6. Renderizar */
+  const paginas = [];
+
+  /* Capa — sem número */
+  paginas.push(renderPagina(htmlCapa(metaC), {num:1, total:totalPgsReal, titulo, isCapa:true, watermark:wm, semNumero:true}));
+
+  /* Pré-textuais — numeração romana */
+  pretexts.forEach((html, pi) => {
+    paginas.push(renderPagina(html, {
+      num:paginas.length+1, total:totalPgsReal, titulo,
+      paginaRomana: toRoman(pi+1), watermark:wm,
+    }));
   });
 
-  /* Secção Anexos — só para items sem página definida */
+  /* TOC — numeração romana */
+  paginas.push(renderPagina(htmlTOC(mapaCapTOC), {
+    num:paginas.length+1, total:totalPgsReal, titulo, isTOC:true,
+    paginaRomana: toRoman(nPretexts+1), watermark:wm,
+  }));
+
+  /* Lista de Figuras (se existir) */
+  if(figList.length > 0){
+    paginas.push(renderPagina(
+      htmlListaFiguras(figList, 1),
+      {num:paginas.length+1, total:totalPgsReal, titulo, paginaRomana:toRoman(nPretexts+2), watermark:wm}
+    ));
+  }
+
+  /* Lista de Tabelas (se existir) */
+  if(tabList.length > 0){
+    paginas.push(renderPagina(
+      htmlListaTabelas(tabList, 1),
+      {num:paginas.length+1, total:totalPgsReal, titulo, paginaRomana:toRoman(nPretexts+2+(figList.length>0?1:0)), watermark:wm}
+    ));
+  }
+
+  /* Conteúdo — numeração arábica a partir de 1 */
+  let nomeCap='';
+  for(let pi=0; pi<_pgsValidas.length; pi++){
+    const pg = _pgsValidas[pi];
+    const tc = pg.find(b=>b.tipo==='titulo_cap');
+    if(tc) nomeCap = tc.titulo;
+    paginas.push(layoutRenderPagina(pg, {
+      num: pi+1, /* arábico */
+      total: totalPgsReal, titulo,
+      nomeCap: tc?'':nomeCap, watermark:wm,
+    }));
+  }
+
+  /* Media com página definida — injectar na página correcta */
+  const _mediaComPag = mediaItems75.filter(m=>m.pag);
+  _mediaComPag.forEach(item=>{
+    const pgIdx = 1 + nPaginasRomanas + Math.max(0,(item.pag||1)-1);
+    const pgAlvo = paginas[Math.min(pgIdx, paginas.length-1)];
+    if(pgAlvo) pgAlvo.innerHTML = (pgAlvo.innerHTML||'') + htmlMediaItem(item, _mediaComPag.indexOf(item)+1);
+  });
+
+  /* Media sem página → Anexos */
+  const _mediaSemPag = mediaItems75.filter(m=>!m.pag);
   if(_mediaSemPag.length > 0){
     const mediaHtml = `<div style="padding:40px 60px">
       <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Anexos</div>
-      ${_mediaSemPag.map((item,i) => htmlMediaItem(item, i+1)).join('<div style="margin:16px 0;border-top:.5pt solid #eee"></div>')}
+      ${_mediaSemPag.map((item,i)=>htmlMediaItem(item,i+1)).join('<div style="margin:16px 0;border-top:.5pt solid #eee"></div>')}
     </div>`;
-    paginas.push(renderPagina(mediaHtml, {num:paginas.length+1, total:totalPgs, titulo, watermark:wm}));
+    paginas.push(renderPagina(mediaHtml, {num:paginas.length+1, total:totalPgsReal, titulo, watermark:wm}));
   }
 
-  /* v69: Pós-textuais (glossário, abreviaturas, apêndices, anexos) */
-  const posTexPages = htmlPostextuais(meta.cfg || E.cfg || {});
-  posTexPages.forEach(html => {
-    paginas.push(renderPagina(html, {num:paginas.length+1, total:totalPgs, titulo, watermark:wm}));
+  /* Pós-textuais */
+  htmlPostextuais(cfgDoc).forEach(html=>{
+    paginas.push(renderPagina(html, {num:paginas.length+1, total:totalPgsReal, titulo, watermark:wm}));
   });
 
-  /* v71: Contracapa — última página */
-  const contracapaHtml = htmlContracapa(meta);
-  paginas.push(renderPagina(contracapaHtml, {num:paginas.length+1, total:totalPgs+1, titulo, isCapa:true, watermark:false}));
+  /* Contracapa */
+  paginas.push(renderPagina(htmlContracapa(meta), {num:paginas.length+1, total:totalPgsReal, titulo, isCapa:true, watermark:false, semNumero:true}));
 
-  return{paginas, totalPgs: paginas.length};
+  return {paginas, totalPgs: paginas.length};
 }
 
 /* ════════════════════════════════════════════════
@@ -8994,21 +9384,78 @@ function montarDocumentoPDF(secs,meta){
    a página real de cada título de capítulo.
    Retorna array: [{num, titulo, pgInicio}]
 ════════════════════════════════════════════════ */
-function layoutGerarTOCReal(paginasDeBlocos){
+function layoutGerarTOCReal(paginasDeBlocos, offsetInicio){
+  /* offsetInicio: capa(1) + pré-textuais + TOC(1) + listas(n) */
+  const offset = offsetInicio || 3;
   const mapa=[];
   for(let pi=0;pi<paginasDeBlocos.length;pi++){
     const pg=paginasDeBlocos[pi];
     const tc=pg.find(b=>b.tipo==='titulo_cap');
     if(tc){
       mapa.push({
-        num: tc.num,
-        titulo: tc.titulo,
-        pgInicio: 3 + pi, /* capa=1, TOC=2, conteúdo=3+ */
-        isRef: tc.isRef||false,
+        num     : tc.num,
+        titulo  : tc.titulo,
+        pgInicio: offset + pi, /* offset real calculado por montarDocumentoPDF */
+        isRef   : tc.isRef||false,
       });
     }
   }
   return mapa;
+}
+
+/* Converte número para numeral romano */
+function toRoman(n){
+  if(!n||n<=0) return '';
+  const vals=[1000,900,500,400,100,90,50,40,10,9,5,4,1];
+  const syms=['M','CM','D','CD','C','XC','L','XL','X','IX','V','IV','I'];
+  let result='';
+  for(let i=0;i<vals.length;i++){
+    while(n>=vals[i]){result+=syms[i];n-=vals[i];}
+  }
+  return result.toLowerCase(); /* i, ii, iii, iv... */
+}
+
+/* Extrair tabelas e figuras do AST para gerar listas automáticas */
+function extrairMediaParaListas(cfgMedia){
+  const figuras  = (cfgMedia||[]).filter(m=>m.tipo==='imagem'||m.tipo==='grafico');
+  const tabelas  = (cfgMedia||[]).filter(m=>m.tipo==='tabela');
+  return { figuras, tabelas };
+}
+
+/* Gerar HTML da Lista de Figuras */
+function htmlListaFiguras(figuras, offsetPags){
+  if(!figuras||!figuras.length) return null;
+  const items = figuras.map((f,i)=>{
+    const pag = f.pag || (offsetPags + i + 2);
+    const pontos = '·'.repeat(Math.max(2, 52-(f.legenda||'').length));
+    return `<div class="toc-item">
+      <div class="toc-item-titulo">Figura ${i+1} — ${f.legenda||f.titulo||'Sem título'}</div>
+      <div class="toc-pontos">${pontos}</div>
+      <div class="toc-pg">${pag}</div>
+    </div>`;
+  }).join('');
+  return `<div style="padding:40px 60px">
+    <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Lista de Figuras</div>
+    <div class="toc-lista">${items}</div>
+  </div>`;
+}
+
+/* Gerar HTML da Lista de Tabelas */
+function htmlListaTabelas(tabelas, offsetPags){
+  if(!tabelas||!tabelas.length) return null;
+  const items = tabelas.map((t,i)=>{
+    const pag = t.pag || (offsetPags + i + 2);
+    const pontos = '·'.repeat(Math.max(2, 52-(t.titulo||'').length));
+    return `<div class="toc-item">
+      <div class="toc-item-titulo">Tabela ${i+1} — ${t.titulo||'Sem título'}</div>
+      <div class="toc-pontos">${pontos}</div>
+      <div class="toc-pg">${pag}</div>
+    </div>`;
+  }).join('');
+  return `<div style="padding:40px 60px">
+    <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Lista de Tabelas</div>
+    <div class="toc-lista">${items}</div>
+  </div>`;
 }
 
 /* ════════════════════════════════════════════════
@@ -9940,6 +10387,17 @@ async function callAcademyAPI(rawPayload){
   const resposta=envelope?.data?.resposta;
   if(resposta===undefined||resposta===null||resposta===''){
     throw new Error('Engine: resposta vazia');
+  }
+  /* v74: para gerar_capitulo retornar data completo */
+  if(action==='gerar_capitulo'||action==='generate_lesson'||action==='regenerar_capitulo'){
+    return {
+      resposta,
+      health      : envelope.data.health       || null,
+      readiness   : envelope.data.readiness    || null,
+      confidence  : envelope.data.confidence   || null,
+      completeness: envelope.data.completeness || null,
+      _guaranteed : envelope.data._guaranteed  || false,
+    };
   }
   return resposta;
 }
@@ -11453,9 +11911,17 @@ async function iniciarGer(retomar){
           instrucaoVariacao  : _INSTRUCAO_ANTI_IA(cap.num, cap.subs?.length||0),
         });
 
-        /* raw pode ser string (texto) ou objecto (AST) — ambos são válidos */
-        if(raw && (typeof raw === 'object' || (typeof raw === 'string' && raw.length > 30))){
-          resultado = raw;
+        /* v72: raw pode ser { resposta, health, readiness } ou valor directo */
+        let _rawVal = raw;
+        if(raw && typeof raw === 'object' && 'resposta' in raw){
+          _rawVal         = raw.resposta;
+          E.secs[i].health      = raw.health       || null;
+          E.secs[i].readiness   = raw.readiness    || null;
+          E.secs[i].confidence  = raw.confidence   || null;
+          E.secs[i].completeness= raw.completeness || null;
+        }
+        if(_rawVal && (typeof _rawVal === 'object' || (typeof _rawVal === 'string' && _rawVal.length > 30))){
+          resultado = _rawVal;
         } else {
           tentativas++;
         }
@@ -11505,7 +11971,14 @@ async function iniciarGer(retomar){
     E.secs[i].c   = textoFinal;
     E.secs[i].ast = astFinal;
 
-    aSecDOM(i,'p','✓ PRONTO', textoFinal);
+    /* v72: label com health */
+    const _healthLabel = E.secs[i].health
+      ? ` · ${E.secs[i].health.health}% ${E.secs[i].health.label}`
+      : '';
+    const _readyLabel  = E.secs[i].readiness
+      ? (E.secs[i].readiness.ready ? ' ✓' : ' ⚠')
+      : '';
+    aSecDOM(i,'p',`✓ PRONTO${_healthLabel}${_readyLabel}`, textoFinal);
     aBarra(i+1, E.est.length);
 
     /* Alimentar AIL/TRE com texto (nunca com objecto) */
@@ -11539,6 +12012,8 @@ async function iniciarGer(retomar){
   E.genFim=true;
   addDoc({tipo:tp.s||tp.n,tema:E.cfg.tema,pags:nPags(),qual:E.qual?.total});
   autoGuardar();
+  /* v72: calcular Document Health global após geração completa */
+  _calcularHealthGlobal();
   gerarGraficos();
 
   const ls=document.getElementById('ls');

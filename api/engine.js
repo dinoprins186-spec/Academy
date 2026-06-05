@@ -277,7 +277,7 @@ export default async function handler(req, res) {
     switch (action) {
 
       case 'ping':
-        return res.json({ ok:true, action:'ping', data:{ pong:true, ts:Date.now() } });
+        return res.json({ ok:true, action:'ping', data:{ resposta:'pong', pong:true, ts:Date.now() } });
 
       case 'chat':
         return res.json(ok('chat', await doChat(payload)));

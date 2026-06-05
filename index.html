@@ -7019,7 +7019,26 @@ function _calcularBlocos(blocos){
     if(b.tipo==='titulo_cap'){
       const temC=pagAtual.some(x=>x.tipo!=='titulo_cap');
       if(temC)quebrar();
-      pagAtual.push(b);altUsada=h;continue;
+      pagAtual.push(b);altUsada=h;
+      /* v64: absorver primeiro h3+parágrafos na mesma página */
+      let _ap=0;
+      for(let j=i+1;j<blocos.length&&j<i+6;j++){
+        if(blocos[j].tipo==='titulo_cap')break;
+        _ap+=_alturaH(blocos[j]);
+      }
+      if(altUsada+_ap>AREA&&_ap>0){
+        const AREA_C=Math.round(_PDF.AREA*0.95);
+        if(altUsada+_ap<=AREA_C){
+          let j=i+1;
+          while(j<blocos.length&&j<i+6){
+            const nb=blocos[j],nh=_alturaH(nb);
+            if(nb.tipo==='titulo_cap')break;
+            if(altUsada+nh>AREA_C)break;
+            pagAtual.push(nb);altUsada+=nh;i=j;j++;
+          }
+        }
+      }
+      continue;
     }
     if(b.tipo==='h2'||b.tipo==='h3'){
       const prox=_altProxConteudo(i,2);
@@ -8036,26 +8055,40 @@ function layoutCalcularBlocos(blocos){
     const h=layoutAlturaBloco(b);
 
     if(b.tipo==='titulo_cap'){
-      /* v65: só quebra se a página actual tem conteúdo além de outro titulo_cap */
+      /* v64 fix DEFINITIVO: titulo_cap nunca fica sozinho.
+         Após colocar o titulo_cap, verificar se o próximo bloco (h3+parágrafos)
+         cabe na mesma página. Se não cabe de todo, reduzir a guarda
+         para que pelo menos h3 + 1 parágrafo fiquem com o titulo_cap. */
       const temConteudo = paginaActual.some(x => x.tipo !== 'titulo_cap');
       if(temConteudo) novaPageBreak();
       paginaActual.push(b);
-      alturaUsada = h;
-      /* v65: lookahead — verificar se o próximo bloco (h2/h3/paragrafo) cabe
-         na mesma página. Se não couber, NÃO deixar o titulo_cap sozinho —
-         ele vai junto com o próximo bloco para a página seguinte. */
-      const proximo = blocos[i+1];
-      if(proximo){
-        const hProx = layoutAlturaBloco(proximo);
-        const guardaProx = (proximo.tipo==='h2'||proximo.tipo==='h3')
-          ? hProx + 240  /* subtítulo + mínimo conteúdo */
-          : hProx;
-        if(alturaUsada + guardaProx > AREA){
-          /* titulo_cap não cabe com o próximo — mover para página nova */
-          paginaActual.pop();
-          novaPageBreak();
-          paginaActual.push(b);
-          alturaUsada = h;
+      alturaUsada=h;
+
+      /* Lookahead: calcular quanto espaço o primeiro h3+parágrafos ocupa */
+      let altProximo = 0;
+      for(let j=i+1; j<blocos.length && j<i+6; j++){
+        const tb=blocos[j].tipo;
+        if(tb==='titulo_cap') break;
+        altProximo += layoutAlturaBloco(blocos[j]);
+      }
+      /* Se o conteúdo seguinte não cabe com a AREA actual, aumentar para 95% */
+      if(alturaUsada + altProximo > AREA && altProximo > 0){
+        /* Usar AREA expandida para esta página de abertura de capítulo */
+        const AREA_CAP = Math.round(PDF.AREA * 0.95);
+        /* Re-verificar — se ainda não cabe, aceitar overflow (melhor que página vazia) */
+        if(alturaUsada + altProximo <= AREA_CAP){
+          /* Absorver o conteúdo directamente nesta página */
+          let j = i+1;
+          while(j < blocos.length && j < i+6){
+            const nb = blocos[j];
+            const nh = layoutAlturaBloco(nb);
+            if(nb.tipo==='titulo_cap') break;
+            if(alturaUsada + nh > AREA_CAP) break;
+            paginaActual.push(nb);
+            alturaUsada += nh;
+            i = j; /* avançar o índice principal */
+            j++;
+          }
         }
       }
       continue;
@@ -8170,6 +8203,7 @@ function layoutRenderPagina(blocosDaPagina, opts){
     ${isTOC?'<span>ÍNDICE</span><span style="font-style:normal">— ii —</span><span></span>'
            :`<span></span><span>— ${num} —</span><span></span>`}
   </div>`:''}
+  ${watermark?`<div class="pag-watermark">ACADEMY · Versão Gratuita · academyscosao.vercel.app</div>`:''}
 </div>`;
 }
 
@@ -8198,6 +8232,7 @@ function renderPagina(conteudoHtml, opts){
     ${isTOC?'<span>ÍNDICE</span><span style="font-style:normal">— ii —</span><span></span>'
            :`<span></span><span>— ${num} —</span><span></span>`}
   </div>`:''}
+  ${watermark?`<div class="pag-watermark">ACADEMY · Versão Gratuita · academyscosao.vercel.app</div>`:''}
 </div>`;
 }
 
@@ -8304,7 +8339,10 @@ function htmlCapa(meta){
     ${prof?`<div style="font-family:Georgia,'Times New Roman',serif;font-size:10pt;font-style:italic;color:#555;margin-top:5pt">Orientador: ${prof}</div>`:''}
     <div style="font-family:Georgia,'Times New Roman',serif;font-size:10pt;color:#666;margin-top:8pt">${data}</div>
   </div>
-  <div style="flex:1;min-height:14pt"></div>`;
+  <div style="flex:1;min-height:14pt"></div>
+  <div style="font-family:Georgia,'Times New Roman',serif;font-size:7.5pt;letter-spacing:.14em;text-transform:uppercase;color:#AAA;text-align:center;padding-bottom:8pt;flex-shrink:0">
+    ACADEMY · GRUPO AGEA COMERCIAL · CEO ADELINO GRAÇA${isEx?' — EXEMPLAR OFICIAL':''}
+  </div>`;
 }
 
 /* ════════════════════════════════════════════════

@@ -2510,7 +2510,7 @@ html[data-tema="claro"] .ec-chat-input-row{background:var(--z3)!important;border
       <div id="ecCapitulos"></div>
       <!-- Rodapé do documento -->
       <div style="padding:24px 20px;text-align:center;border-top:1px solid var(--e0);margin-top:12px">
-        <div style="font-family:var(--fm);font-size:8px;color:var(--t4);letter-spacing:.14em;text-transform:uppercase">ACADEMY · Grupo AGEA Comercial · CEO Adelino Graça</div>
+        
       </div>
     </div>
 
@@ -2846,7 +2846,7 @@ const LOGO_SMALL='data:image/svg+xml,'+encodeURIComponent(LOGO_SVG_SMALL);
 /* ══ ESTADO ══ */
 let E={
   u:null,ecra:'entrada',nav:'inicio',tema:'escuro',
-  cfg:{tipo:null,tema:'',nivel:'',turma:'',area:'',prof:'',inst:'',logo:null,logoPrev:null,pags:15,numCaps:5,mbs:[],refStyle:'APA',estruturaProf:''},
+  cfg:{tipo:null,tema:'',nivel:'',turma:'',area:'',prof:'',inst:'',logo:null,logoPrev:null,pags:15,numCaps:5,mbs:[],refStyle:'APA',estruturaProf:'',dedicatoria:'',agradecimentos:'',epigrafe:'',epigrafAutor:'',mediaItems:[],postextuais:[]},
   plano:null,est:null,secs:[],qual:null,graficos:[],mea:[],lingua:'pt-AO',
   capa:{imagem:null,usarCapa:true,logoInst:null,logoRepublica:null},
   instrutorAtivo:true,
@@ -4710,16 +4710,139 @@ function sGeracao(){
 
     <div style="padding:14px;background:var(--z2);border:1px solid var(--e0);border-radius:var(--r)">
       <div style="font-family:var(--fm);font-size:8px;color:var(--t3);letter-spacing:.1em;margin-bottom:10px">ENQUANTO AGUARDAS — DETALHES FINAIS</div>
-      <label class="lbl" style="margin-bottom:4px">Dedicatória</label>
-      <input class="inp" placeholder="Ex: Dedico este trabalho à minha família…" value="${E.cfg.dedicatoria||''}" style="margin-bottom:8px;font-size:12px" oninput="E.cfg.dedicatoria=this.value"/>
+
+      <!-- Dedicatória -->
+      <label class="lbl" style="margin-bottom:4px">Dedicatória <span style="color:var(--t4)">(opcional)</span></label>
+      <textarea class="inp" placeholder="Ex: Dedico este trabalho à minha família…" style="margin-bottom:8px;font-size:12px;min-height:48px;resize:vertical" oninput="E.cfg.dedicatoria=this.value">${E.cfg.dedicatoria||''}</textarea>
+
+      <!-- Agradecimentos -->
+      <label class="lbl" style="margin-bottom:4px">Agradecimentos <span style="color:var(--t4)">(opcional)</span></label>
+      <textarea class="inp" placeholder="Ex: Agradeço ao meu orientador, aos colegas e à minha família pelo apoio…" style="margin-bottom:8px;font-size:12px;min-height:60px;resize:vertical" oninput="E.cfg.agradecimentos=this.value">${E.cfg.agradecimentos||''}</textarea>
+
+      <!-- Epígrafe -->
+      <label class="lbl" style="margin-bottom:4px">Epígrafe <span style="color:var(--t4)">(opcional)</span></label>
+      <input class="inp" placeholder="Frase ou citação inspiradora…" value="${E.cfg.epigrafe||''}" style="margin-bottom:2px;font-size:12px" oninput="E.cfg.epigrafe=this.value"/>
+      <input class="inp" placeholder="Autor da epígrafe" value="${E.cfg.epigrafAutor||''}" style="margin-bottom:8px;font-size:11px;color:var(--t3)" oninput="E.cfg.epigrafAutor=this.value"/>
+
+      <!-- Membros -->
       <div style="display:flex;gap:8px">
-        <div>
-          <label class="lbl" style="margin-bottom:4px">Membros (adicionar)</label>
+        <div style="flex:1">
+          <label class="lbl" style="margin-bottom:4px">Membros do grupo</label>
           <div style="display:flex;gap:6px">
-            <input class="inp" id="mbG" placeholder="Nome" style="font-size:12px" onkeydown="if(event.key==='Enter'){E.cfg.mbs.push(document.getElementById('mbG').value.trim());document.getElementById('mbG').value='';mostrarToast('✓ Membro adicionado.');}"/>
+            <input class="inp" id="mbG" placeholder="Nome do membro" style="font-size:12px" onkeydown="if(event.key==='Enter'){const v=this.value.trim();if(v){E.cfg.mbs.push(v);this.value='';mostrarToast('✓ Membro adicionado.');}}"/>
             <button class="btn G s" onclick="const v=document.getElementById('mbG').value.trim();if(v){E.cfg.mbs.push(v);document.getElementById('mbG').value='';mostrarToast('✓ Membro adicionado.');}">+</button>
           </div>
         </div>
+      </div>
+    </div>
+
+      <!-- INSERÇÃO DE MEDIA NO DOCUMENTO -->
+    <div style="margin-top:12px;padding:14px;background:var(--z2);border:1px solid var(--e0);border-radius:var(--r)">
+      <div style="font-family:var(--fm);font-size:8px;color:var(--t3);letter-spacing:.1em;margin-bottom:10px">ENRIQUECER O DOCUMENTO</div>
+      <div style="font-family:var(--fm);font-size:9px;color:var(--t3);margin-bottom:10px;line-height:1.5">
+        Adiciona imagens, tabelas ou gráficos ao documento. Aparecerão numa secção dedicada antes das Referências.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+
+        <!-- Imagem -->
+        <div style="background:var(--z3);border:.5px solid var(--e0);border-radius:var(--r2);padding:10px;text-align:center;cursor:pointer" onclick="document.getElementById('mediaImgInp').click()">
+          <div style="font-size:20px;margin-bottom:4px">🖼</div>
+          <div style="font-family:var(--fm);font-size:8px;color:var(--t2)">IMAGEM</div>
+          <div style="font-family:var(--fm);font-size:7px;color:var(--t4);margin-top:2px">${(E.cfg.mediaItems||[]).filter(m=>m.tipo==='imagem').length} adicionada(s)</div>
+        </div>
+        <input type="file" id="mediaImgInp" accept="image/*" multiple style="display:none" onchange="_mediaAddImagem(this)"/>
+
+        <!-- Tabela -->
+        <div style="background:var(--z3);border:.5px solid var(--e0);border-radius:var(--r2);padding:10px;text-align:center;cursor:pointer" onclick="_mediaAddTabela()">
+          <div style="font-size:20px;margin-bottom:4px">📊</div>
+          <div style="font-family:var(--fm);font-size:8px;color:var(--t2)">TABELA</div>
+          <div style="font-family:var(--fm);font-size:7px;color:var(--t4);margin-top:2px">${(E.cfg.mediaItems||[]).filter(m=>m.tipo==='tabela').length} adicionada(s)</div>
+        </div>
+
+        <!-- Gráfico -->
+        <div style="background:var(--z3);border:.5px solid var(--e0);border-radius:var(--r2);padding:10px;text-align:center;cursor:pointer" onclick="_mediaAddGrafico()">
+          <div style="font-size:20px;margin-bottom:4px">📈</div>
+          <div style="font-family:var(--fm);font-size:8px;color:var(--t2)">GRÁFICO</div>
+          <div style="font-family:var(--fm);font-size:7px;color:var(--t4);margin-top:2px">${(E.cfg.mediaItems||[]).filter(m=>m.tipo==='grafico').length} adicionado(s)</div>
+        </div>
+      </div>
+
+      <!-- Lista de items adicionados -->
+      ${(E.cfg.mediaItems||[]).length>0?`
+      <div style="margin-top:10px">
+        ${(E.cfg.mediaItems||[]).map((m,idx)=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--z3);border-radius:var(--r2);margin-bottom:4px">
+          <span style="font-size:14px">${m.tipo==='imagem'?'🖼':m.tipo==='tabela'?'📊':'📈'}</span>
+          <span style="flex:1;font-family:var(--fm);font-size:10px;color:var(--t2)">${m.legenda||m.titulo||'Sem legenda'}</span>
+          <button style="background:transparent;border:none;color:var(--t4);cursor:pointer;font-size:12px;padding:2px 6px" onclick="E.cfg.mediaItems.splice(${idx},1);irPara('editor')">✕</button>
+        </div>`).join('')}
+      </div>`:''}
+    </div>
+
+    <!-- PÓS-TEXTUAIS -->
+    <div style="margin-top:12px;padding:14px;background:var(--z2);border:1px solid var(--e0);border-radius:var(--r)">
+      <div style="font-family:var(--fm);font-size:8px;color:var(--t3);letter-spacing:.1em;margin-bottom:10px">ELEMENTOS PÓS-TEXTUAIS</div>
+      <div style="font-family:var(--fm);font-size:9px;color:var(--t3);margin-bottom:10px;line-height:1.5">
+        Adicionados após as Referências Bibliográficas. Selecciona os que precisas.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+
+        <!-- Glossário -->
+        <div style="background:var(--z3);border:.5px solid var(--e0);border-radius:var(--r2);padding:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="font-family:var(--fm);font-size:9px;color:var(--t2);font-weight:600">📖 Glossário</div>
+            <button class="btn G s" style="font-size:9px;padding:4px 10px" onclick="_posTextualAdd('glossario')">+ Adicionar termo</button>
+          </div>
+          ${(E.cfg.postextuais||[]).filter(p=>p.tipo==='glossario').length===0
+            ? `<div style="font-family:var(--fm);font-size:9px;color:var(--t4)">Nenhum termo adicionado</div>`
+            : (E.cfg.postextuais||[]).filter(p=>p.tipo==='glossario').map((p,i)=>`
+              <div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:4px">
+                <div style="flex:1;font-family:var(--fm);font-size:9px;color:var(--t2)"><strong>${p.termo}</strong> — ${p.definicao}</div>
+                <button style="background:transparent;border:none;color:var(--t4);cursor:pointer;font-size:11px" onclick="E.cfg.postextuais=E.cfg.postextuais.filter((_,j)=>j!==${(E.cfg.postextuais||[]).indexOf(p)});irPara('editor')">✕</button>
+              </div>`).join('')}
+        </div>
+
+        <!-- Lista de Abreviaturas -->
+        <div style="background:var(--z3);border:.5px solid var(--e0);border-radius:var(--r2);padding:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="font-family:var(--fm);font-size:9px;color:var(--t2);font-weight:600">🔤 Lista de Abreviaturas</div>
+            <button class="btn G s" style="font-size:9px;padding:4px 10px" onclick="_posTextualAdd('abreviatura')">+ Adicionar</button>
+          </div>
+          ${(E.cfg.postextuais||[]).filter(p=>p.tipo==='abreviatura').length===0
+            ? `<div style="font-family:var(--fm);font-size:9px;color:var(--t4)">Nenhuma abreviatura</div>`
+            : (E.cfg.postextuais||[]).filter(p=>p.tipo==='abreviatura').map((p,i)=>`
+              <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+                <div style="flex:1;font-family:var(--fm);font-size:9px;color:var(--t2)"><strong>${p.abrev}</strong> — ${p.significado}</div>
+                <button style="background:transparent;border:none;color:var(--t4);cursor:pointer;font-size:11px" onclick="E.cfg.postextuais=E.cfg.postextuais.filter((_,j)=>j!==${(E.cfg.postextuais||[]).indexOf(p)});irPara('editor')">✕</button>
+              </div>`).join('')}
+        </div>
+
+        <!-- Apêndice -->
+        <div style="background:var(--z3);border:.5px solid var(--e0);border-radius:var(--r2);padding:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="font-family:var(--fm);font-size:9px;color:var(--t2);font-weight:600">📎 Apêndice <span style="font-weight:400;color:var(--t4)">(material próprio)</span></div>
+            <button class="btn G s" style="font-size:9px;padding:4px 10px" onclick="_posTextualAdd('apendice')">+ Adicionar</button>
+          </div>
+          ${(E.cfg.postextuais||[]).filter(p=>p.tipo==='apendice').map((p,i)=>`
+            <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+              <div style="flex:1;font-family:var(--fm);font-size:9px;color:var(--t2)">${p.titulo}</div>
+              <button style="background:transparent;border:none;color:var(--t4);cursor:pointer;font-size:11px" onclick="E.cfg.postextuais=E.cfg.postextuais.filter((_,j)=>j!==${(E.cfg.postextuais||[]).indexOf(p)});irPara('editor')">✕</button>
+            </div>`).join('')||`<div style="font-family:var(--fm);font-size:9px;color:var(--t4)">Nenhum apêndice</div>`}
+        </div>
+
+        <!-- Anexo (material de terceiros) -->
+        <div style="background:var(--z3);border:.5px solid var(--e0);border-radius:var(--r2);padding:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="font-family:var(--fm);font-size:9px;color:var(--t2);font-weight:600">📂 Anexo <span style="font-weight:400;color:var(--t4)">(material externo)</span></div>
+            <button class="btn G s" style="font-size:9px;padding:4px 10px" onclick="_posTextualAdd('anexo')">+ Adicionar</button>
+          </div>
+          ${(E.cfg.postextuais||[]).filter(p=>p.tipo==='anexo').map((p,i)=>`
+            <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+              <div style="flex:1;font-family:var(--fm);font-size:9px;color:var(--t2)">${p.titulo}</div>
+              <button style="background:transparent;border:none;color:var(--t4);cursor:pointer;font-size:11px" onclick="E.cfg.postextuais=E.cfg.postextuais.filter((_,j)=>j!==${(E.cfg.postextuais||[]).indexOf(p)});irPara('editor')">✕</button>
+            </div>`).join('')||`<div style="font-family:var(--fm);font-size:9px;color:var(--t4)">Nenhum anexo</div>`}
+        </div>
+
       </div>
     </div>
   </div>`;
@@ -6301,7 +6424,7 @@ function abrirModoLeitura(secs,meta){
 
     </div>`).join('')}
 
-    <div style="text-align:center;padding-top:32px;border-top:1px solid var(--e0);font-family:var(--fm);font-size:8px;color:var(--t4);letter-spacing:.14em;text-transform:uppercase">ACADEMY · Grupo AGEA Comercial · CEO Adelino Graça</div>
+    <div style="text-align:center;padding-top:32px;border-top:1px solid var(--e0);font-family:var(--fm);font-size:8px;color:var(--t4);letter-spacing:.14em;text-transform:uppercase"></div>
   </div>`;
   document.body.appendChild(ml);
 }
@@ -6660,7 +6783,7 @@ async function _expDocxExecutar(secs, meta) {
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dc:title>${xe(meta.titulo)}</dc:title>
   <dc:creator>${xe(meta.autor)}</dc:creator>
-  <dc:description>Gerado por ACADEMY · Grupo AGEA Comercial · CEO Adelino Graça</dc:description>
+  <dc:description>Gerado por</dc:description>
   <dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:created>
   <cp:lastModifiedBy>ACADEMY</cp:lastModifiedBy>
 </cp:coreProperties>`);
@@ -7048,7 +7171,7 @@ function _calcularBlocos(blocos){
     }
     if(b.tipo==='h2'||b.tipo==='h3'){
       const prox=_altProxConteudo(i,2);
-      const need=h+Math.max(prox,72);
+      const need=h+Math.max(prox,100); /* v68: guarda worker aumentada */
       if(altUsada+need>AREA)quebrar();
       pagAtual.push(b);altUsada+=h;continue;
     }
@@ -8508,7 +8631,7 @@ function layoutCalcularBlocos(blocos){
        Se não cabe, o subtítulo e o conteúdo vão todos para a página seguinte. */
     if(b.tipo==='h2'||b.tipo==='h3'){
       const {total: altConteudo} = alturaProximosConteudo(i, 3);
-      const guardaMinima = Math.max(altConteudo, 240); /* 240px ≈ 3 parágrafos curtos */
+      const guardaMinima = Math.max(altConteudo, 300); /* v68: guarda aumentada para subtítulos */ /* 240px ≈ 3 parágrafos curtos */
       const necessario = h + guardaMinima;
       if(alturaUsada + necessario > AREA && paginaActual.length>0){
         novaPageBreak();
@@ -8612,7 +8735,7 @@ function layoutRenderPagina(blocosDaPagina, opts){
     ${isTOC?'<span>ÍNDICE</span><span style="font-style:normal">— ii —</span><span></span>'
            :`<span></span><span>— ${num} —</span><span></span>`}
   </div>`:''}
-  ${watermark?`<div class="pag-watermark">ACADEMY · Versão Gratuita · academyscosao.vercel.app</div>`:''}
+
 </div>`;
 }
 
@@ -8641,7 +8764,7 @@ function renderPagina(conteudoHtml, opts){
     ${isTOC?'<span>ÍNDICE</span><span style="font-style:normal">— ii —</span><span></span>'
            :`<span></span><span>— ${num} —</span><span></span>`}
   </div>`:''}
-  ${watermark?`<div class="pag-watermark">ACADEMY · Versão Gratuita · academyscosao.vercel.app</div>`:''}
+
 </div>`;
 }
 
@@ -8750,7 +8873,6 @@ function htmlCapa(meta){
   </div>
   <div style="flex:1;min-height:14pt"></div>
   <div style="font-family:Georgia,'Times New Roman',serif;font-size:7.5pt;letter-spacing:.14em;text-transform:uppercase;color:#AAA;text-align:center;padding-bottom:8pt;flex-shrink:0">
-    ACADEMY · GRUPO AGEA COMERCIAL · CEO ADELINO GRAÇA${isEx?' — EXEMPLAR OFICIAL':''}
   </div>`;
 }
 
@@ -8790,8 +8912,15 @@ function montarDocumentoPDF(secs,meta){
   /* Capa */
   paginas.push(renderPagina(htmlCapa(metaC),{num:1,total:totalPgs,titulo,isCapa:true,watermark:wm}));
 
+  /* v68: Elementos pré-textuais (dedicatória, agradecimentos, epígrafe) */
+  const pretexts = htmlPretextuais(meta.cfg || E.cfg || {});
+  pretexts.forEach((html, pi) => {
+    paginas.push(renderPagina(html, {num:2+pi, total:totalPgs, titulo, isCapa:false, watermark:wm}));
+  });
+  const offsetTOC = 1 + pretexts.length; /* capa + pré-textuais */
+
   /* TOC */
-  paginas.push(renderPagina(htmlTOC(mapaCapTOC),{num:2,total:totalPgs,titulo,isTOC:true,watermark:wm}));
+  paginas.push(renderPagina(htmlTOC(mapaCapTOC),{num:1+offsetTOC,total:totalPgs,titulo,isTOC:true,watermark:wm}));
 
   /* Conteúdo */
   let nomeCap='';
@@ -8799,9 +8928,25 @@ function montarDocumentoPDF(secs,meta){
     const pg=paginasDeBlocos[pi];
     const tc=pg.find(b=>b.tipo==='titulo_cap');
     if(tc) nomeCap=tc.titulo;
-    const pgN=3+pi;
+    const pgN=2+offsetTOC+pi;
     paginas.push(layoutRenderPagina(pg,{num:pgN,total:totalPgs,titulo,nomeCap:tc?'':nomeCap,watermark:wm}));
   }
+
+  /* v68: Secção de media (imagens, tabelas, gráficos) antes das referências */
+  const mediaItems = (meta.cfg || E.cfg || {}).mediaItems || [];
+  if(mediaItems.length > 0){
+    const mediaHtml = `<div style="padding:40px 60px">
+      <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Anexos</div>
+      ${mediaItems.map((item,i) => htmlMediaItem(item, i+1)).join('<div style="margin:16px 0;border-top:.5pt solid #eee"></div>')}
+    </div>`;
+    paginas.push(renderPagina(mediaHtml, {num:paginas.length+1, total:totalPgs, titulo, watermark:wm}));
+  }
+
+  /* v69: Pós-textuais (glossário, abreviaturas, apêndices, anexos) */
+  const posTexPages = htmlPostextuais(meta.cfg || E.cfg || {});
+  posTexPages.forEach(html => {
+    paginas.push(renderPagina(html, {num:paginas.length+1, total:totalPgs, titulo, watermark:wm}));
+  });
 
   return{paginas,totalPgs};
 }
@@ -9542,7 +9687,7 @@ function expPDF(exId){
       mostrarToast('⚠ Limite atingido. Escolhe um plano para exportar.');
       return;
     }
-    meta.watermark=check.wm;
+    meta.watermark=false; /* v68: watermark removido */
     registarExportacao(numPags,0);
   }
 
@@ -10748,6 +10893,215 @@ function treValidarCapitulo(texto, capNum){
 /* ════════════════════════════════════════════════
    FIM — THESIS REASONING ENGINE v53
 ════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════
+   MEDIA — Imagens, Tabelas, Gráficos v68
+   Permite inserir elementos visuais no documento
+════════════════════════════════════════════════ */
+function _mediaAddImagem(input){
+  if(!input.files||!input.files.length)return;
+  if(!E.cfg.mediaItems)E.cfg.mediaItems=[];
+  Array.from(input.files).forEach(file=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const legenda=prompt('Legenda da imagem (ex: Figura 1 — Evolução do PIB):','Figura '+(E.cfg.mediaItems.filter(m=>m.tipo==='imagem').length+1));
+      E.cfg.mediaItems.push({tipo:'imagem',src:e.target.result,legenda:legenda||file.name,id:'img-'+Date.now()});
+      mostrarToast('✓ Imagem adicionada.');
+      irPara('editor');
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function _mediaAddTabela(){
+  if(!E.cfg.mediaItems)E.cfg.mediaItems=[];
+  const titulo=prompt('Título da tabela (ex: Tabela 1 — Dados estatísticos):','Tabela '+(E.cfg.mediaItems.filter(m=>m.tipo==='tabela').length+1));
+  if(!titulo)return;
+  /* Tabela simples 3x3 por defeito — utilizador pode editar */
+  const tabela={
+    tipo:'tabela',
+    titulo,
+    id:'tab-'+Date.now(),
+    colunas:['Coluna 1','Coluna 2','Coluna 3'],
+    linhas:[['','',''],['','',''],['','','']],
+    fonte:'Fonte: Elaboração própria.',
+  };
+  E.cfg.mediaItems.push(tabela);
+  mostrarToast('✓ Tabela adicionada. Edita os dados no editor.');
+  irPara('editor');
+}
+
+function _mediaAddGrafico(){
+  if(!E.cfg.mediaItems)E.cfg.mediaItems=[];
+  const titulo=prompt('Título do gráfico (ex: Gráfico 1 — Taxa de crescimento):','Gráfico '+(E.cfg.mediaItems.filter(m=>m.tipo==='grafico').length+1));
+  if(!titulo)return;
+  const labels=prompt('Categorias (separadas por vírgula):','2020,2021,2022,2023');
+  const valores=prompt('Valores (separados por vírgula):','10,25,40,55');
+  if(!labels||!valores)return;
+  E.cfg.mediaItems.push({
+    tipo:'grafico',
+    titulo,
+    id:'graf-'+Date.now(),
+    labels:labels.split(',').map(s=>s.trim()),
+    valores:valores.split(',').map(s=>parseFloat(s.trim())||0),
+    fonte:'Fonte: Elaboração própria.',
+  });
+  mostrarToast('✓ Gráfico adicionado.');
+  irPara('editor');
+}
+
+/* Gera HTML dos elementos pré-textuais (dedicatória, agradecimentos, epígrafe)
+   para inserir no PDF antes do índice */
+function htmlPretextuais(cfg){
+  const pages=[];
+
+  if(cfg.dedicatoria&&cfg.dedicatoria.trim()){
+    pages.push(`<div class="pretextual-pag" style="display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-end;height:100%;padding-bottom:80px;padding-right:40px">
+      <div style="max-width:60%;text-align:right;font-style:italic;font-size:12pt;line-height:1.8;color:#333">${cfg.dedicatoria}</div>
+    </div>`);
+  }
+
+  if(cfg.agradecimentos&&cfg.agradecimentos.trim()){
+    pages.push(`<div class="pretextual-pag" style="padding:40px 60px">
+      <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Agradecimentos</div>
+      <div style="font-size:12pt;line-height:1.8;text-align:justify">${cfg.agradecimentos}</div>
+    </div>`);
+  }
+
+  if(cfg.epigrafe&&cfg.epigrafe.trim()){
+    pages.push(`<div class="pretextual-pag" style="display:flex;flex-direction:column;justify-content:center;align-items:flex-end;height:100%;padding-right:60px">
+      <div style="max-width:55%;text-align:right">
+        <div style="font-style:italic;font-size:13pt;line-height:1.8;color:#333;margin-bottom:8px">"${cfg.epigrafe}"</div>
+        ${cfg.epigrafAutor?`<div style="font-size:11pt;color:#666">— ${cfg.epigrafAutor}</div>`:''}
+      </div>
+    </div>`);
+  }
+
+  return pages;
+}
+
+/* Renderiza HTML de imagem para o PDF */
+function htmlMediaItem(item, idx){
+  if(item.tipo==='imagem'){
+    return `<div style="page-break-inside:avoid;margin:20px 0;text-align:center">
+      <img src="${item.src}" style="max-width:100%;max-height:300px;object-fit:contain;border:1px solid #eee"/>
+      <div style="font-size:10pt;color:#555;margin-top:6px;font-style:italic">${item.legenda}</div>
+    </div>`;
+  }
+  if(item.tipo==='tabela'){
+    const header=item.colunas.map(c=>`<th style="border:1pt solid #333;padding:6px 10px;background:#f5f5f5;font-size:10pt">${c}</th>`).join('');
+    const rows=item.linhas.map(row=>`<tr>${row.map(cell=>`<td style="border:.5pt solid #ccc;padding:5px 10px;font-size:10pt">${cell}</td>`).join('')}</tr>`).join('');
+    return `<div style="page-break-inside:avoid;margin:16px 0">
+      <div style="font-size:10pt;font-weight:bold;margin-bottom:6px">${item.titulo}</div>
+      <table style="width:100%;border-collapse:collapse"><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table>
+      <div style="font-size:9pt;color:#777;margin-top:4px;font-style:italic">${item.fonte||''}</div>
+    </div>`;
+  }
+  if(item.tipo==='grafico'){
+    /* Gráfico de barras simples em SVG */
+    const max=Math.max(...item.valores,1);
+    const w=480,h=200,pad=40,barW=Math.floor((w-pad*2)/item.valores.length*0.6);
+    const barGap=Math.floor((w-pad*2)/item.valores.length);
+    const bars=item.valores.map((v,i)=>{
+      const barH=Math.round((v/max)*(h-pad));
+      const x=pad+i*barGap;
+      const y=h-pad-barH;
+      return `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="#2563eb" rx="2"/>
+              <text x="${x+barW/2}" y="${y-4}" text-anchor="middle" font-size="9" fill="#333">${v}</text>
+              <text x="${x+barW/2}" y="${h-pad+14}" text-anchor="middle" font-size="9" fill="#555">${item.labels[i]||''}</text>`;
+    }).join('');
+    return `<div style="page-break-inside:avoid;margin:16px 0;text-align:center">
+      <div style="font-size:10pt;font-weight:bold;margin-bottom:8px">${item.titulo}</div>
+      <svg width="${w}" height="${h}" style="font-family:Georgia,serif">${bars}
+        <line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" stroke="#333" stroke-width="1"/>
+      </svg>
+      <div style="font-size:9pt;color:#777;margin-top:4px;font-style:italic">${item.fonte||''}</div>
+    </div>`;
+  }
+  return '';
+}
+
+/* ════════════════════════════════════════════════
+   PÓS-TEXTUAIS v69
+   Glossário, Abreviaturas, Apêndices, Anexos
+════════════════════════════════════════════════ */
+function _posTextualAdd(tipo){
+  if(!E.cfg.postextuais) E.cfg.postextuais=[];
+  if(tipo==='glossario'){
+    const termo=prompt('Termo:');
+    if(!termo)return;
+    const def=prompt('Definição:');
+    if(!def)return;
+    E.cfg.postextuais.push({tipo:'glossario',termo,definicao:def});
+  } else if(tipo==='abreviatura'){
+    const abrev=prompt('Abreviatura (ex: TIC):');
+    if(!abrev)return;
+    const sig=prompt('Significado (ex: Tecnologias da Informação e Comunicação):');
+    if(!sig)return;
+    E.cfg.postextuais.push({tipo:'abreviatura',abrev,significado:sig});
+  } else if(tipo==='apendice'||tipo==='anexo'){
+    const titulo=prompt(`Título do ${tipo==='apendice'?'apêndice':'anexo'}:`);
+    if(!titulo)return;
+    const conteudo=prompt('Conteúdo (texto breve):','');
+    E.cfg.postextuais.push({tipo,titulo,conteudo:conteudo||''});
+  }
+  mostrarToast(`✓ ${tipo} adicionado.`);
+  irPara('editor');
+}
+
+/* Gera HTML dos pós-textuais para o PDF */
+function htmlPostextuais(cfg){
+  const items = cfg.postextuais||[];
+  if(!items.length) return [];
+  const pages=[];
+
+  /* Glossário */
+  const glossario=items.filter(p=>p.tipo==='glossario');
+  if(glossario.length){
+    const rows=glossario.map(p=>`<div style="display:flex;gap:12px;padding:6px 0;border-bottom:.5pt solid #eee">
+      <div style="font-weight:bold;min-width:120px;font-size:11pt">${p.termo}</div>
+      <div style="flex:1;font-size:11pt;line-height:1.6">${p.definicao}</div>
+    </div>`).join('');
+    pages.push(`<div style="padding:40px 60px">
+      <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Glossário</div>
+      ${rows}
+    </div>`);
+  }
+
+  /* Lista de Abreviaturas */
+  const abrevs=items.filter(p=>p.tipo==='abreviatura');
+  if(abrevs.length){
+    const sorted=[...abrevs].sort((a,b)=>a.abrev.localeCompare(b.abrev));
+    const rows=sorted.map(p=>`<div style="display:flex;gap:12px;padding:5px 0;border-bottom:.5pt solid #eee">
+      <div style="font-weight:bold;min-width:80px;font-size:11pt">${p.abrev}</div>
+      <div style="flex:1;font-size:11pt">${p.significado}</div>
+    </div>`).join('');
+    pages.push(`<div style="padding:40px 60px">
+      <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Lista de Abreviaturas</div>
+      ${rows}
+    </div>`);
+  }
+
+  /* Apêndices */
+  const apendices=items.filter(p=>p.tipo==='apendice');
+  apendices.forEach((p,i)=>{
+    pages.push(`<div style="padding:40px 60px">
+      <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Apêndice ${String.fromCharCode(65+i)} — ${p.titulo}</div>
+      <div style="font-size:12pt;line-height:1.8;text-align:justify">${p.conteudo||''}</div>
+    </div>`);
+  });
+
+  /* Anexos */
+  const anexos=items.filter(p=>p.tipo==='anexo');
+  anexos.forEach((p,i)=>{
+    pages.push(`<div style="padding:40px 60px">
+      <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Anexo ${String.fromCharCode(65+i)} — ${p.titulo}</div>
+      <div style="font-size:12pt;line-height:1.8;text-align:justify">${p.conteudo||''}</div>
+    </div>`);
+  });
+
+  return pages;
+}
 
 function cancelarGeracao(){
   mostrarToast('⏹ Geração cancelada.');

@@ -7483,7 +7483,12 @@ async function aePDFStream(secs, meta, onProgress, cancelToken){
   if(onProgress) onProgress(10);
 
   /* Conteúdo em chunks com yield */
-  const conteudo = await renderQueue(paginasDeBlocos, {titulo,totalPgs,watermark:wm}, pct=>{
+  /* v70: remover páginas vazias antes de renderizar */
+  const paginasDeBlocosFiltradas = paginasDeBlocos.filter(pg =>
+    pg && pg.length > 0 &&
+    pg.some(b => b.tipo === 'titulo_cap' || b.tipo === 'h2' || b.tipo === 'h3' || b.tipo === 'paragrafo' || b.tipo === 'ref_item')
+  );
+  const conteudo = await renderQueue(paginasDeBlocosFiltradas, {titulo,totalPgs,watermark:wm}, pct=>{
     if(onProgress) onProgress(10+Math.round(pct*0.8));
   });
 
@@ -8516,8 +8521,12 @@ function preRenderStressValidate(paginas, grupos) {
 function preRenderPipeline(blocos) {
   const grupos  = preRenderAgrupar(blocos);
   const paginas = preRenderConstraintEngine(grupos);
-  preRenderStressValidate(paginas, grupos); /* loga erros, não bloqueia */
-  return paginas;
+  preRenderStressValidate(paginas, grupos);
+  /* v70: filtrar páginas completamente vazias */
+  return paginas.filter(pg =>
+    pg && pg.length > 0 &&
+    pg.some(b => b.tipo === 'titulo_cap' || b.tipo === 'h2' || b.tipo === 'h3' || b.tipo === 'paragrafo' || b.tipo === 'ref_item')
+  );
 }
 
 /* FIM PRE-RENDER LAYOUT LAYER v65 */
@@ -8890,10 +8899,13 @@ function montarDocumentoPDF(secs,meta){
   /* TOC */
   paginas.push(renderPagina(htmlTOC(mapaCapTOC),{num:1+offsetTOC,total:totalPgs,titulo,isTOC:true,watermark:wm}));
 
-  /* Conteúdo */
+  /* Conteúdo — v70: filtrar páginas vazias */
+  const _pgsValidas = paginasDeBlocos.filter(pg =>
+    pg && pg.some(b => ['titulo_cap','h2','h3','paragrafo','ref_item'].includes(b.tipo))
+  );
   let nomeCap='';
-  for(let pi=0;pi<paginasDeBlocos.length;pi++){
-    const pg=paginasDeBlocos[pi];
+  for(let pi=0;pi<_pgsValidas.length;pi++){
+    const pg=_pgsValidas[pi];
     const tc=pg.find(b=>b.tipo==='titulo_cap');
     if(tc) nomeCap=tc.titulo;
     const pgN=2+offsetTOC+pi;

@@ -8022,6 +8022,312 @@ function layoutAlturaBloco(bloco){
    - ref_item: nunca partido pelo meio
    - órfã/viúva: mín 2 linhas por página
 ════════════════════════════════════════════════ */
+/* ╔══════════════════════════════════════════════════════════════╗
+   ║  PRE-RENDER LAYOUT LAYER — v65                              ║
+   ║  Fase 1.1: IDs hierárquicos + estimativa por linhas        ║
+   ║                                                              ║
+   ║  PRINCÍPIO: IA gera estrutura → Engine decide layout        ║
+   ║             Renderer apenas exporta                         ║
+   ╚══════════════════════════════════════════════════════════════╝ */
+
+/* ── MODELO DE LINHAS (estável independente de px/dpi/fonte) ────
+   Base: Georgia 12pt, line-height 1.5, largura útil 155mm
+   1 linha ≈ 24px | ~68 chars por linha
+   Estimativas calibradas contra output real A4
+   ─────────────────────────────────────────────────────────────── */
+const LINE_MODEL = {
+  PX_POR_LINHA  : 24,   /* Georgia 12pt × 1.5 × 96dpi/72 */
+  CHARS_POR_LINHA: 68,  /* largura útil 155mm */
+  /* Alturas em LINHAS (não px) — independentes de render engine */
+  LINHAS: {
+    titulo_cap : 4.5,   /* heading + espacador + borda */
+    h2         : 2.2,   /* subtítulo com margens */
+    h3         : 1.8,
+    ref_item   : 2.0,   /* referência APA ~2 linhas */
+    paragrafo  : null,  /* calculado dinamicamente */
+    espaco     : 0.8,
+  },
+  /* Mínimo de linhas de conteúdo após qualquer subtítulo */
+  MIN_LINHAS_SECAO: 6,  /* ~3 parágrafos curtos */
+};
+
+function linhasBloco(bloco) {
+  const L = LINE_MODEL.LINHAS;
+  if (bloco.tipo === 'paragrafo') {
+    const chars = (bloco.texto || '').length;
+    return Math.max(1, Math.ceil(chars / LINE_MODEL.CHARS_POR_LINHA)) + 0.3; /* +0.3 margem */
+  }
+  return L[bloco.tipo] ?? 1.5;
+}
+
+function pxBloco(bloco) {
+  return Math.round(linhasBloco(bloco) * LINE_MODEL.PX_POR_LINHA);
+}
+
+/* ── PASSO 1: Agrupar blocos com IDs hierárquicos explícitos ────
+   Cada grupo recebe:
+     id            — identificador único
+     chapter_id    — capítulo pai
+     section_id    — secção pai (null para chapter_group)
+     tipo          — chapter_group | section_group | ref_group | single
+   ─────────────────────────────────────────────────────────────── */
+function preRenderAgrupar(blocos) {
+  const grupos = [];
+  let i = 0;
+  let seq = 0;
+  let currentChapterId = null;
+
+  function nextId(prefix) { return `${prefix}-${++seq}`; }
+
+  while (i < blocos.length) {
+    const b = blocos[i];
+
+    /* CHAPTER GROUP */
+    if (b.tipo === 'titulo_cap') {
+      const id = nextId('c');
+      currentChapterId = id;
+      const grupo = {
+        id,
+        chapter_id   : id,
+        section_id   : null,
+        tipo         : 'chapter_group',
+        blocos       : [b],
+        linhasTotal  : linhasBloco(b),
+      };
+      i++;
+      /* Absorver: h2/h3 + mínimo 3 parágrafos → unidade mínima de capítulo */
+      let nPars = 0, nSubs = 0;
+      while (i < blocos.length && blocos[i].tipo !== 'titulo_cap') {
+        const nb = blocos[i];
+        grupo.blocos.push(nb);
+        grupo.linhasTotal += linhasBloco(nb);
+        if (nb.tipo === 'paragrafo') nPars++;
+        if (nb.tipo === 'h2' || nb.tipo === 'h3') nSubs++;
+        i++;
+        if (nSubs >= 1 && nPars >= 3) break; /* unidade mínima atingida */
+      }
+      grupos.push(grupo);
+      continue;
+    }
+
+    /* SECTION GROUP */
+    if (b.tipo === 'h2' || b.tipo === 'h3') {
+      const id = nextId('s');
+      const grupo = {
+        id,
+        chapter_id   : currentChapterId,
+        section_id   : id,
+        tipo         : 'section_group',
+        blocos       : [b],
+        linhasTotal  : linhasBloco(b),
+        linhasConteudo: 0,
+      };
+      i++;
+      while (i < blocos.length) {
+        const nb = blocos[i];
+        if (nb.tipo === 'titulo_cap' || nb.tipo === 'h2' || nb.tipo === 'h3') break;
+        const l = linhasBloco(nb);
+        grupo.blocos.push(nb);
+        grupo.linhasTotal    += l;
+        grupo.linhasConteudo += l;
+        i++;
+      }
+      grupos.push(grupo);
+      continue;
+    }
+
+    /* REF GROUP */
+    if (b.tipo === 'ref_item') {
+      const id = nextId('r');
+      const grupo = {
+        id,
+        chapter_id: currentChapterId,
+        section_id: null,
+        tipo      : 'ref_group',
+        blocos    : [],
+        linhasTotal: 0,
+      };
+      while (i < blocos.length && blocos[i].tipo === 'ref_item') {
+        const l = linhasBloco(blocos[i]);
+        grupo.blocos.push(blocos[i]);
+        grupo.linhasTotal += l;
+        i++;
+      }
+      grupos.push(grupo);
+      continue;
+    }
+
+    /* SINGLE */
+    grupos.push({
+      id        : nextId('b'),
+      chapter_id: currentChapterId,
+      section_id: null,
+      tipo      : 'single',
+      blocos    : [b],
+      linhasTotal: linhasBloco(b),
+    });
+    i++;
+  }
+
+  return grupos;
+}
+
+/* ── PASSO 2: Constraint Engine (line-based) ─────────────────────
+   Todas as regras em LINHAS — estável entre render engines
+   ─────────────────────────────────────────────────────────────── */
+function preRenderConstraintEngine(grupos) {
+  const AREA_PX    = Math.round(PDF.AREA * 0.88);
+  const AREA_CAP_PX= Math.round(PDF.AREA * 0.95);
+  const AREA_L     = AREA_PX    / LINE_MODEL.PX_POR_LINHA; /* linhas disponíveis */
+  const AREA_CAP_L = AREA_CAP_PX / LINE_MODEL.PX_POR_LINHA;
+  const MIN_SECAO_L= LINE_MODEL.MIN_LINHAS_SECAO; /* 6 linhas mínimo após subtítulo */
+
+  const paginas    = [];
+  let paginaActual = [];
+  let linhasUsadas = 0;
+
+  function novaPageBreak() {
+    if (paginaActual.length > 0) {
+      paginas.push(paginaActual);
+      paginaActual = [];
+      linhasUsadas = 0;
+    }
+  }
+
+  function adicionarBloco(bloco) {
+    const l = linhasBloco(bloco);
+    if (linhasUsadas + l > AREA_L && paginaActual.length > 0) novaPageBreak();
+    paginaActual.push(bloco);
+    linhasUsadas += l;
+  }
+
+  for (const grupo of grupos) {
+    const gL = grupo.linhasTotal;
+
+    /* ── CAPÍTULO: título + conteúdo inicial numa só página ── */
+    if (grupo.tipo === 'chapter_group') {
+      if (paginaActual.length > 0) novaPageBreak();
+
+      if (gL <= AREA_CAP_L) {
+        /* Grupo cabe todo na página — colocar junto */
+        for (const bloco of grupo.blocos) {
+          paginaActual.push(bloco);
+          linhasUsadas += linhasBloco(bloco);
+        }
+      } else {
+        /* Grupo maior que página — colocar o que cabe */
+        for (const bloco of grupo.blocos) {
+          const l = linhasBloco(bloco);
+          if (linhasUsadas + l > AREA_CAP_L && paginaActual.length > 0) novaPageBreak();
+          paginaActual.push(bloco);
+          linhasUsadas += l;
+        }
+      }
+      continue;
+    }
+
+    /* ── SECÇÃO: subtítulo nunca órfão (line-based) ── */
+    if (grupo.tipo === 'section_group') {
+      const lSubtitulo = linhasBloco(grupo.blocos[0]);
+      const lConteudo  = grupo.linhasConteudo || 0;
+      /* Guardar mínimo: subtítulo + MIN_SECAO_L linhas de conteúdo */
+      const guardaL = lSubtitulo + Math.min(lConteudo, MIN_SECAO_L);
+
+      if (linhasUsadas + guardaL > AREA_L && paginaActual.length > 0) {
+        novaPageBreak();
+      }
+
+      for (const bloco of grupo.blocos) {
+        const l = linhasBloco(bloco);
+        if (linhasUsadas + l > AREA_L && paginaActual.length > 0) novaPageBreak();
+        paginaActual.push(bloco);
+        linhasUsadas += l;
+      }
+      continue;
+    }
+
+    /* ── REFERÊNCIAS: indivisíveis ── */
+    if (grupo.tipo === 'ref_group') {
+      if (linhasUsadas + gL > AREA_L && paginaActual.length > 0) novaPageBreak();
+      for (const bloco of grupo.blocos) adicionarBloco(bloco);
+      continue;
+    }
+
+    /* ── BLOCO SIMPLES ── */
+    adicionarBloco(grupo.blocos[0]);
+  }
+
+  if (paginaActual.length > 0) paginas.push(paginaActual);
+  return paginas;
+}
+
+/* ── PASSO 3: Stress Validator ───────────────────────────────────
+   Detecta falhas silenciosas após paginação.
+   Não bloqueia — loga no console para análise.
+   ─────────────────────────────────────────────────────────────── */
+function preRenderStressValidate(paginas, grupos) {
+  const erros = [];
+
+  for (let pi = 0; pi < paginas.length; pi++) {
+    const pg = paginas[pi];
+    const nPg = pi + 3; /* +2 capa e TOC */
+
+    /* 1. Página com só titulo_cap */
+    if (pg.length === 1 && pg[0].tipo === 'titulo_cap') {
+      erros.push({ severidade: 'CRITICO', pagina: nPg, tipo: 'CAPITULO_SOZINHO',
+        msg: `Capítulo "${pg[0].titulo}" sozinho na página ${nPg}` });
+    }
+
+    /* 2. Subtítulo no fim de página */
+    const ultimo = pg[pg.length - 1];
+    if (ultimo && (ultimo.tipo === 'h2' || ultimo.tipo === 'h3')) {
+      erros.push({ severidade: 'CRITICO', pagina: nPg, tipo: 'SUBTITULO_ORFAO',
+        msg: `Subtítulo "${ultimo.texto}" é o último bloco da página ${nPg}` });
+    }
+
+    /* 3. Página com menos de 3 blocos de conteúdo (excluindo primeira página de capítulo) */
+    const nConteudo = pg.filter(b => b.tipo === 'paragrafo').length;
+    const temTitulo = pg.some(b => b.tipo === 'titulo_cap');
+    if (!temTitulo && nConteudo < 2 && pi > 0) {
+      erros.push({ severidade: 'AVISO', pagina: nPg, tipo: 'PAGINA_ESPARSA',
+        msg: `Página ${nPg} tem apenas ${nConteudo} parágrafo(s)` });
+    }
+  }
+
+  /* 4. Validar que todos os grupos têm chapter_id */
+  const semChapter = grupos.filter(g => !g.chapter_id && g.tipo !== 'single');
+  if (semChapter.length > 0) {
+    erros.push({ severidade: 'AVISO', tipo: 'SEM_HIERARQUIA',
+      msg: `${semChapter.length} grupos sem chapter_id (agrupamento heurístico)` });
+  }
+
+  if (erros.length > 0) {
+    console.group('[ACADEMY Layout v65] Stress Validation');
+    erros.forEach(e => {
+      const fn = e.severidade === 'CRITICO' ? console.error : console.warn;
+      fn(`[${e.severidade}] ${e.tipo}: ${e.msg}`);
+    });
+    console.groupEnd();
+  } else {
+    console.log('[ACADEMY Layout v65] ✓ Stress validation OK —', paginas.length, 'páginas sem erros.');
+  }
+
+  return erros;
+}
+
+/* ── API PÚBLICA ─────────────────────────────────────────────────
+   preRenderPipeline(blocos) → páginas
+   blocos → grupos (com IDs) → constraints (line-based) → páginas
+   ─────────────────────────────────────────────────────────────── */
+function preRenderPipeline(blocos) {
+  const grupos  = preRenderAgrupar(blocos);
+  const paginas = preRenderConstraintEngine(grupos);
+  preRenderStressValidate(paginas, grupos); /* loga erros, não bloqueia */
+  return paginas;
+}
+
+/* FIM PRE-RENDER LAYOUT LAYER v65 */
+
 function layoutCalcularBlocos(blocos){
   /* v59: AREA 88% — equilibrio entre preenchimento e segurança.
      keepWithNext exige 3 parágrafos mínimos após qualquer h2/h3. */
@@ -8362,8 +8668,10 @@ function montarDocumentoPDF(secs,meta){
   /* 1. Estruturar semanticamente */
   const blocos=docEstruturarSemantico(secs);
 
-  /* 2. Distribuir por páginas semânticas */
-  const paginasDeBlocos=layoutCalcularBlocos(blocos);
+  /* 2. Distribuir por páginas — v64: Pre-Render Layout Layer
+     Strangler pattern: substitui layoutCalcularBlocos pelo pipeline
+     grupo semântico → constraints → páginas */
+  const paginasDeBlocos = preRenderPipeline(blocos);
 
   /* 2b. v48: Validar anomalias (não bloqueia — apenas loga) */
   layoutValidarDocumento(paginasDeBlocos, blocos);

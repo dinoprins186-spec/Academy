@@ -360,9 +360,15 @@ async function doCapitulo(p) {
 
   if (!tema||!capTit) throw new Error('tema e capTitulo obrigatórios');
 
-  /* Cálculo de palavras */
-  const palavrasCalc = Math.round(((totalPags-2)*370) / totalCaps);
-  const palavras = Math.min(Math.max(parseInt(p.palavrasPorCap)||palavrasCalc, 150), 2000);
+  /* v71: Cálculo de palavras exacto
+     Páginas fixas: capa(1) + contracapa(1) + TOC(1) = 3
+     Deixa margem para pré/pós-textuais opcionais
+     Limite max aumentado para 4000 para documentos grandes */
+  const PAGINAS_FIXAS = 3; /* capa + TOC + contracapa */
+  const PALAVRAS_POR_PAGINA = 370;
+  const paginasConteudo = Math.max(totalPags - PAGINAS_FIXAS, 1);
+  const palavrasCalc = Math.round((paginasConteudo * PALAVRAS_POR_PAGINA) / totalCaps);
+  const palavras = Math.min(Math.max(parseInt(p.palavrasPorCap)||palavrasCalc, 200), 4000);
 
   /* Perfis v68: contexto geográfico dinâmico */
   const nivelKey  = detectarNivel(nivel);
@@ -381,7 +387,8 @@ async function doCapitulo(p) {
   /* Abordagem estrutural rotativa */
   const abordagem = ABORDAGENS[(capNum-1) % ABORDAGENS.length];
 
-  const maxTok = Math.min(Math.max(Math.round(palavras*1.7), 500), 8000);
+  /* v71: tokens proporcionais — sem corte artificial */
+  const maxTok = Math.min(Math.max(Math.round(palavras*1.8), 600), 12000);
 
   /* v67: abordagem analítica por posição do capítulo */
   /* v68: instrução geográfica dinâmica */

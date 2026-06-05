@@ -9084,10 +9084,9 @@ function layoutRenderPagina(blocosDaPagina, opts){
 
 /* Renderização especial para páginas com HTML directo (capa, TOC) */
 function renderPagina(conteudoHtml, opts){
-  const{num,total,titulo,cabecalho,isCapa,isTOC,watermark}=opts;
+  const{num,total,titulo,cabecalho,isCapa,isTOC,watermark,paginaRomana,semNumero}=opts;
   const exibirHeader=!isCapa&&!isTOC;
   const exibirFooter=!isCapa;
-  const numDisplay = semNumero ? '' : paginaRomana ? paginaRomana : String(num);
   /* v51: truncamento inteligente por palavras */
   const tituloAbrev = _truncarRunningHead(titulo||'ACADEMY', 40);
   const cabecalhoAbrev = _truncarRunningHead(cabecalho||'', 32);

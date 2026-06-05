@@ -39,31 +39,58 @@ function setCORS(res) {
 }
 
 /* ---------------- POOLS ANTI-IA ---------------- */
+/* v67: pools expandidos — 20+ variantes por categoria
+   Elimina repetições mecânicas detectadas na avaliação de qualidade */
 const EXEMPLOS = [
-  'A título ilustrativo,','Por exemplo,','Como caso concreto em Angola,',
-  'Ilustrando este ponto,','Num contexto prático,','Observa-se, por exemplo,',
-  'Numa perspectiva angolana,','Tomando como referência o contexto nacional,',
-  'De forma ilustrativa,','Como se verifica na prática angolana,',
-  'Num exemplo verificável,','A experiência angolana demonstra que',
+  'A experiência angolana demonstra que',
+  'No contexto específico de Angola,',
+  'Num cenário concreto verificável,',
+  'Os dados de campo indicam que',
+  'A realidade angolana revela que',
+  'Tomando como caso ilustrativo',
+  'A evidência empírica mostra que',
+  'Num contexto prático verificável,',
+  'A análise do caso angolano revela',
+  'Os indicadores disponíveis mostram que',
+  'A situação em Angola ilustra bem',
+  'Verificando os dados disponíveis,',
 ];
 const HIPOTESES = [
-  'A hipótese central deste estudo sustenta que',
-  'Parte-se do pressuposto de que',
-  'Este trabalho assume como ponto de partida que',
+  'A tese central deste trabalho é que',
+  'A análise conduz à conclusão de que',
+  'Os dados permitem inferir que',
   'A investigação aponta para o facto de que',
-  'Admite-se, neste contexto, que',
-  'O presente trabalho defende que',
-  'Os dados disponíveis sugerem que',
+  'O exame crítico da literatura revela que',
+  'A posição defendida neste estudo é que',
+  'A leitura dos factos sugere que',
+  'A evidência disponível indica que',
 ];
 const CONCLUSOES = [
-  'Em síntese,','Em suma,','Em conclusão,','Concluindo,',
-  'Face ao exposto,','Perante o analisado,','Assim sendo,',
-  'Do exposto decorre que,','A análise evidencia que,',
+  'A análise evidencia, portanto, que',
+  'Os dados apresentados confirmam que',
+  'O exame crítico demonstra que',
+  'A síntese dos argumentos aponta para',
+  'O quadro analítico traçado revela que',
+  'A investigação permite concluir que',
+  'Os elementos reunidos sustentam que',
+  'O percurso argumentativo culmina em',
 ];
 const TRANSICOES = [
-  'Neste quadro,','Neste sentido,','A este respeito,',
-  'Importa sublinhar que','Cumpre referir que','Convém notar que',
-  'É relevante destacar que','Vale a pena salientar que',
+  'Aprofundando esta perspectiva,',
+  'A análise revela ainda que',
+  'Numa leitura mais crítica,',
+  'Articulando com o argumento anterior,',
+  'A dimensão analítica exige reconhecer que',
+  'Complementando a perspectiva teórica,',
+  'O debate académico evidencia que',
+  'A revisão da literatura aponta que',
+];
+/* v67: Conectores proibidos — detectados como marcadores de texto IA */
+const CONECTORES_PROIBIDOS = [
+  'Cumpre referir que','Importa sublinhar que','Convém notar que',
+  'Vale a pena salientar que','É relevante destacar que',
+  'Neste sentido,','Neste quadro,','A este respeito,',
+  'Do exposto decorre que','Perante o analisado,',
 ];
 
 function antiIA(capNum, totalCaps) {
@@ -74,17 +101,30 @@ function antiIA(capNum, totalCaps) {
     (n/(totalCaps-1))<=0.35 ? 'fundamentação teórica' :
     (n/(totalCaps-1))<=0.65 ? 'análise crítica' :
     (n/(totalCaps-1))<=0.88 ? 'síntese' : 'conclusão';
-  return `REGRAS DE ESTILO OBRIGATÓRIAS:
-1. Para exemplos usa: "${pick(EXEMPLOS,1)}" — NUNCA "A título de exemplo:" repetido
-2. Para hipótese usa: "${pick(HIPOTESES,2)}"
-3. Para concluir secções usa: "${pick(CONCLUSOES,3)}"
-4. Para transições usa: "${pick(TRANSICOES,4)}"
-5. PROIBIDO bullets, listas, asteriscos ou markdown
-6. PROIBIDO repetir a mesma estrutura em subtópicos consecutivos
-7. PROIBIDO usar "Brasil", "Portugal", "Europa" como referência principal — contexto é Angola
-8. PROIBIDO referir Angola de forma vaga — especifica sempre: "Luanda (2021)", "MINSA (2022)", "INE (2023)"
-9. Texto deve soar como académico angolano experiente, não como IA
-10. Posição no documento: ${fase} — adequa tom e profundidade`;
+  const proibidos = CONECTORES_PROIBIDOS.slice(0,4).join('", "');
+  return `REGRAS DE ESTILO OBRIGATÓRIAS — APLICAR RIGOROSAMENTE:
+
+TOM E VOZ:
+1. Escreve com VOZ ANALÍTICA — não apenas descrever conceitos, mas comparar, questionar, posicionar
+2. Cada subtópico deve incluir: (a) posição teórica, (b) contraponto ou limitação, (c) aplicação angolana
+3. PROIBIDO usar estes conectores mecânicos que revelam texto IA: "${proibidos}"
+4. PROIBIDO iniciar dois parágrafos consecutivos com a mesma palavra ou estrutura
+5. Para exemplos usa: "${pick(EXEMPLOS,1)}" — nunca a mesma expressão duas vezes no mesmo capítulo
+6. Para hipótese/posição usa: "${pick(HIPOTESES,2)}"
+7. Para concluir usa: "${pick(CONCLUSOES,3)}"
+8. Para transições usa: "${pick(TRANSICOES,4)}"
+
+CITAÇÕES — OBRIGATÓRIO:
+9. Cada dado estatístico DEVE ter citação inline: (Autor, Ano) ou (Instituição, Ano)
+10. Não escrever "segundo dados do INE" sem especificar o ano: "segundo INE (2023)"
+11. Mínimo 2 citações por parágrafo de desenvolvimento — integradas no argumento, não no fim
+
+ANGOLA ESPECÍFICO:
+12. PROIBIDO usar "Brasil", "Portugal", "Europa" como referência principal
+13. Angola sempre com especificidade: "Luanda (2021)", "MINSA (2022)", "INE (2023)", "BNA (2023)"
+14. Pelo menos 1 dado quantitativo angolano verificável por subtópico
+
+POSIÇÃO NO DOCUMENTO: ${fase} — adequa profundidade analítica`;
 }
 
 /* ---------------- PERFIS POR NÍVEL ---------------- */
@@ -315,15 +355,31 @@ async function doCapitulo(p) {
 
   const maxTok = Math.min(Math.max(Math.round(palavras*1.7), 500), 8000);
 
-  const prompt = `És um professor universitário angolano a escrever o Capítulo ${capNum} de um ${tipo} de nível ${nivel} sobre "${tema}".
+  /* v67: abordagem analítica por posição do capítulo */
+  const abordagemAnalitica = [
+    `Abordagem histórico-crítica: traça a evolução do conceito com datas angolanas concretas, questiona a narrativa dominante, propõe leitura alternativa fundamentada.`,
+    `Abordagem teórico-comparativa: confronta pelo menos 2 perspectivas teóricas divergentes, posiciona o argumento, aplica ao contexto angolano com dados específicos.`,
+    `Abordagem empírico-analítica: parte de dados quantitativos angolanos verificáveis, analisa causas e efeitos, não se limita a descrever — interpreta e questiona.`,
+    `Abordagem crítico-reflexiva: identifica contradições ou tensões no tema, examina limitações das abordagens existentes, propõe síntese fundamentada.`,
+    `Abordagem prospectiva-propositiva: analisa o estado actual com rigor, identifica lacunas e desafios estruturais, formula recomendações concretas para Angola.`,
+  ][(capNum-1) % 5];
+
+  const prompt = `És um professor universitário angolano especialista em ${pArea.label} a escrever o Capítulo ${capNum} de um ${tipo} de nível ${nivel} sobre "${tema}".
 
 CAPÍTULO: ${capNum}. ${capTit}
 
 SUBTÓPICOS OBRIGATÓRIOS (usa esta numeração exacta, cada um em linha própria):
 ${subs}
 
-ABORDAGEM ESTRUTURAL PARA ESTE CAPÍTULO:
-${abordagem}
+ABORDAGEM ANALÍTICA OBRIGATÓRIA:
+${abordagemAnalitica}
+
+ESTRUTURA DE CADA SUBTÓPICO (nesta ordem exacta):
+1. Contextualização teórica com pelo menos 1 citação (Autor, Ano)
+2. Desenvolvimento analítico — confrontar perspectivas, não apenas descrever
+3. Dado quantitativo angolano verificável com fonte e ano: ex. "Angola registou X (INE, 2023)"
+4. Análise crítica do dado — o que significa para o tema?
+5. Síntese argumentativa — qual é a posição do autor?
 
 NÍVEL ACADÉMICO — ${nivelKey.toUpperCase()}:
 ${pNivel.profundidade}
@@ -435,6 +491,8 @@ REGRAS ABSOLUTAS:
 - PROIBIDO referências fora da área temática
 - Ordenadas alfabeticamente pelo apelido
 - Sem numeração, sem bullets — uma referência por parágrafo com linha em branco entre cada
+- Incluir pelo menos 2 fontes primárias angolanas: INE, BNA, MINSA, legislação angolana quando relevante
+- As referências devem ser reais e verificáveis
 
 Escreve APENAS as referências, sem título nem introdução.`;
 

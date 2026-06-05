@@ -275,6 +275,393 @@ function truncar(texto, max) {
   return (u > c.length * 0.7 ? c.substring(0, u+1) : c).trim();
 }
 
+
+/* ================================================================
+   AST REPAIR ENGINE — v72
+   Recebe AST parcial/inválido e devolve AST válido garantido.
+   Nunca falha. Nunca retorna texto livre.
+================================================================ */
+function repararAST(raw, capNum, capTit, subs) {
+  /* Tentar extrair o que existe */
+  let ast = null;
+  if (raw && typeof raw === 'object') {
+    ast = raw;
+  } else if (typeof raw === 'string') {
+    try { ast = JSON.parse(raw.replace(/```(?:json)?\s*/gi,'').replace(/```/g,'').trim()); }
+    catch (_) { ast = null; }
+    if (!ast) {
+      /* Tentar extrair JSON parcial */
+      const m = raw.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+      if (m) try { ast = JSON.parse(m[1]); } catch (_) {}
+    }
+  }
+
+  /* Schema mínimo garantido */
+  const base = {
+    chapter_id : String(capNum),
+    title      : capTit || `Capítulo ${capNum}`,
+    status     : 'generated',
+    generated_at: new Date().toISOString(),
+    generated_by: 'academy-engine-v72',
+    version    : 1,
+    sections   : [],
+  };
+
+  if (!ast) {
+    /* Fallback total — criar estrutura vazia com subtópicos */
+    const secsDefault = (Array.isArray(subs) && subs.length > 0 ? subs : [
+      'Contextualização', 'Desenvolvimento', 'Análise Crítica'
+    ]).map((s, i) => ({
+      section_id  : `${capNum}.${i+1}`,
+      title       : s,
+      status      : 'empty',
+      paragraphs  : [],
+    }));
+    return { ...base, sections: secsDefault, _repaired: true, _repair_reason: 'no_json' };
+  }
+
+  /* Reparar campos em falta */
+  ast.chapter_id  = ast.chapter_id  || base.chapter_id;
+  ast.title       = ast.title       || base.title;
+  ast.status      = ast.status      || 'generated';
+  ast.generated_at= ast.generated_at|| base.generated_at;
+  ast.generated_by= ast.generated_by|| base.generated_by;
+  ast.version     = ast.version     || 1;
+
+  /* Reparar sections */
+  if (!Array.isArray(ast.sections) || ast.sections.length === 0) {
+    ast.sections = base.sections;
+    ast._repaired = true;
+    ast._repair_reason = 'missing_sections';
+  } else {
+    ast.sections = ast.sections.map((sec, i) => {
+      /* Garantir section_id */
+      if (!sec.section_id) sec.section_id = `${capNum}.${i+1}`;
+      /* Garantir title */
+      if (!sec.title) sec.title = subs?.[i] || `${capNum}.${i+1}`;
+      /* Garantir paragraphs como array */
+      if (!Array.isArray(sec.paragraphs)) {
+        /* Tentar extrair de content string */
+        if (typeof sec.content === 'string' && sec.content.trim()) {
+          sec.paragraphs = sec.content.split('\n\n')
+            .map(p => p.trim()).filter(p => p.length > 20);
+        } else {
+          sec.paragraphs = [];
+        }
+        ast._repaired = true;
+        ast._repair_reason = 'paragraphs_repaired';
+      }
+      /* Remover parágrafos vazios */
+      sec.paragraphs = sec.paragraphs
+        .map(p => typeof p === 'string' ? p.trim() : '')
+        .filter(p => p.length > 15);
+      return sec;
+    });
+  }
+
+  return ast;
+}
+
+/* Validar AST após reparação */
+function validarAST(ast) {
+  if (!ast || !ast.sections || !Array.isArray(ast.sections)) return false;
+  if (ast.sections.length === 0) return false;
+  /* Pelo menos 1 secção com conteúdo */
+  return ast.sections.some(s =>
+    Array.isArray(s.paragraphs) && s.paragraphs.length >= 1
+  );
+}
+
+/* ================================================================
+   DOCUMENT HEALTH ENGINE — v72
+   Mede integridade documental. Separado do Academic Score.
+   Responde: "Este documento tem o mínimo para ser válido?"
+================================================================ */
+function calcularDocumentHealth(ast, nivel) {
+  const issues = [];
+  let score = 100;
+
+  /* 1. Secções vazias */
+  const secsVazias = ast.sections?.filter(
+    s => !s.paragraphs || s.paragraphs.length === 0
+  ) || [];
+  if (secsVazias.length > 0) {
+    score -= secsVazias.length * 15;
+    issues.push({
+      severity : 'error',
+      code     : 'EMPTY_SECTIONS',
+      message  : `${secsVazias.length} subtópico(s) sem conteúdo`,
+      sections : secsVazias.map(s => s.section_id),
+    });
+  }
+
+  /* 2. Parágrafos curtos demais */
+  const parasMinimos = { 'ensino médio': 60, 'licenciatura': 80, 'mestrado': 100, 'doutoramento': 120 };
+  const minChars = parasMinimos[nivel] || 80;
+  let parasCurtos = 0;
+  (ast.sections || []).forEach(s =>
+    (s.paragraphs || []).forEach(p => { if ((p||'').length < minChars) parasCurtos++; })
+  );
+  if (parasCurtos > 2) {
+    score -= Math.min(20, parasCurtos * 4);
+    issues.push({
+      severity : 'warning',
+      code     : 'SHORT_PARAGRAPHS',
+      message  : `${parasCurtos} parágrafos abaixo do mínimo para ${nivel}`,
+    });
+  }
+
+  /* 3. AST reparado (indica falha na geração) */
+  if (ast._repaired) {
+    score -= 10;
+    issues.push({
+      severity : 'warning',
+      code     : 'AST_REPAIRED',
+      message  : `Estrutura reconstruída automaticamente (razão: ${ast._repair_reason})`,
+    });
+  }
+
+  score = Math.max(0, score);
+  return {
+    health  : score,
+    issues,
+    label   : score >= 85 ? 'Saudável' : score >= 60 ? 'Aceitável' : 'Necessita revisão',
+  };
+}
+
+/* ================================================================
+   READINESS SCORE — v72
+   Responde UMA pergunta: "Posso entregar este capítulo ao professor?"
+   Binário com justificação.
+================================================================ */
+function calcularReadiness(ast, nivel, geoCtx) {
+  const blockers = [];
+  const warnings = [];
+
+  /* Bloqueadores — não pronto */
+  if (!validarAST(ast)) {
+    blockers.push('Capítulo sem conteúdo gerado');
+  }
+
+  const totalParas = (ast.sections || []).reduce(
+    (acc, s) => acc + (s.paragraphs || []).length, 0
+  );
+  const minParas = { 'ensino médio': 6, 'licenciatura': 9, 'mestrado': 12, 'doutoramento': 15 };
+  if (totalParas < (minParas[nivel] || 6)) {
+    blockers.push(`Parágrafos insuficientes: ${totalParas} (mínimo: ${minParas[nivel] || 6})`);
+  }
+
+  /* Avisos — pronto mas com ressalvas */
+  if (ast._repaired) {
+    warnings.push('Estrutura foi reconstruída automaticamente');
+  }
+  if (geoCtx === 'global' && ast._angola_count > 10) {
+    warnings.push('Texto contém referências geográficas inesperadas');
+  }
+
+  const ready = blockers.length === 0;
+  return {
+    ready,
+    verdict : ready ? 'Pronto para entrega' : 'Não recomendado para entrega',
+    blockers,
+    warnings,
+  };
+}
+
+
+/* ================================================================
+   CONFIDENCE SCORE — v73
+   Mede não apenas QUALIDADE mas FIABILIDADE do processo.
+   Dois documentos com health=94 podem ter origens muito diferentes.
+   Confidence expõe isso.
+================================================================ */
+function calcularConfidence(ast, meta) {
+  /* meta: { retry_count, ast_repaired, repair_reason, generation_time_ms } */
+  let score = 100;
+  const factores = [];
+
+  /* AST reparado = menos confiança na estrutura */
+  if (ast._repaired || meta.ast_repaired) {
+    const penalty = meta.repair_reason === 'no_json' ? 25 : 12;
+    score -= penalty;
+    factores.push({ factor: 'ast_repaired', impact: -penalty, reason: meta.repair_reason });
+  }
+
+  /* Retries = o modelo precisou de mais tentativas */
+  if (meta.retry_count > 0) {
+    const penalty = meta.retry_count * 8;
+    score -= Math.min(penalty, 20);
+    factores.push({ factor: 'retries', count: meta.retry_count, impact: -Math.min(penalty, 20) });
+  }
+
+  /* Secções vazias depois de reparação = baixa confiança no conteúdo */
+  const secsVazias = (ast.sections || []).filter(
+    s => !s.paragraphs || s.paragraphs.length === 0
+  ).length;
+  if (secsVazias > 0) {
+    score -= secsVazias * 10;
+    factores.push({ factor: 'empty_sections', count: secsVazias, impact: -secsVazias * 10 });
+  }
+
+  /* Poucos parágrafos = conteúdo raso */
+  const totalParas = (ast.sections || []).reduce(
+    (acc, s) => acc + (s.paragraphs || []).length, 0
+  );
+  if (totalParas < 6) {
+    score -= 15;
+    factores.push({ factor: 'low_paragraph_count', count: totalParas, impact: -15 });
+  }
+
+  /* Tempo de geração anormalmente alto = possível timeout/retry silencioso */
+  if (meta.generation_time_ms > 60000) {
+    score -= 5;
+    factores.push({ factor: 'slow_generation', ms: meta.generation_time_ms, impact: -5 });
+  }
+
+  score = Math.max(0, score);
+  return {
+    confidence : score,
+    label      : score >= 85 ? 'Alta' : score >= 65 ? 'Média' : 'Baixa',
+    factores,
+  };
+}
+
+/* ================================================================
+   TELEMETRIA — v73
+   Regista métricas por geração para análise futura.
+   Guarda no Supabase se disponível; loga sempre no console.
+================================================================ */
+async function registarTelemetria(payload) {
+  const record = {
+    ts               : new Date().toISOString(),
+    tema             : payload.tema,
+    nivel            : payload.nivel,
+    area             : payload.area,
+    tipo             : payload.tipo,
+    cap_num          : payload.cap_num,
+    ast_generated    : payload.ast_generated,
+    ast_repaired     : payload.ast_repaired     || false,
+    repair_reason    : payload.repair_reason    || null,
+    retry_count      : payload.retry_count      || 0,
+    health           : payload.health           || null,
+    confidence       : payload.confidence       || null,
+    ready            : payload.ready            || false,
+    generation_time_ms: payload.generation_time_ms || 0,
+    pages_requested  : payload.pages_requested  || null,
+    word_count       : payload.word_count       || 0,
+    model_used       : payload.model_used       || 'unknown',
+  };
+
+  /* Log estruturado — sempre */
+  console.log('[TELEMETRIA v73]', JSON.stringify(record));
+
+  /* Supabase — se configurado */
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) return;
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 5000);
+  try {
+    await fetch(`${url}/rest/v1/academy_ai_logs`, {
+      method  : 'POST',
+      signal  : ctrl.signal,
+      headers : {
+        'Content-Type'  : 'application/json',
+        'apikey'        : key,
+        'Authorization' : `Bearer ${key}`,
+        'Prefer'        : 'return=minimal',
+      },
+      body: JSON.stringify(record),
+    });
+  } catch (_) { /* telemetria nunca bloqueia */ }
+  finally { clearTimeout(t); }
+}
+
+
+/* ================================================================
+   COMPLETENESS SCORE — v74
+   Mede profundidade e cobertura, não apenas integridade.
+   Responde: "O documento está superficial ou denso?"
+================================================================ */
+function calcularCompleteness(ast, palavrasAlvo, totalCaps, nivelKey) {
+  const dimensoes = {};
+
+  /* 1. Cobertura de páginas — palavras reais vs alvo */
+  const totalPalavras = (ast.sections || []).reduce(
+    (acc, s) => acc + (s.paragraphs || []).join(' ').split(/\s+/).filter(Boolean).length, 0
+  );
+  const paginasGeradas = totalPalavras / 370;
+  const coberturaRatio = Math.min(1, totalPalavras / Math.max(palavrasAlvo, 1));
+  dimensoes.paginas = Math.round(coberturaRatio * 100);
+
+  /* 2. Densidade de conteúdo — parágrafos por secção */
+  const secCounts = (ast.sections || []).map(s => (s.paragraphs || []).length);
+  const minPorSec = { 'ensino médio': 3, 'licenciatura': 4, 'mestrado': 5, 'doutoramento': 6 };
+  const min = minPorSec[nivelKey] || 4;
+  const densidadeRatio = secCounts.length > 0
+    ? secCounts.reduce((a, n) => a + Math.min(1, n / min), 0) / secCounts.length
+    : 0;
+  dimensoes.densidade = Math.round(densidadeRatio * 100);
+
+  /* 3. Cobertura de subtópicos — todos gerados vs esperados */
+  const secsComConteudo = (ast.sections || []).filter(s => (s.paragraphs || []).length > 0).length;
+  const totalSecs = Math.max((ast.sections || []).length, 1);
+  dimensoes.cobertura = Math.round((secsComConteudo / totalSecs) * 100);
+
+  /* 4. Profundidade — tamanho médio dos parágrafos */
+  const todasParas = (ast.sections || []).flatMap(s => s.paragraphs || []);
+  const charsMedios = todasParas.length > 0
+    ? todasParas.reduce((a, p) => a + (p || '').length, 0) / todasParas.length
+    : 0;
+  const charMin = { 'ensino médio': 200, 'licenciatura': 300, 'mestrado': 400, 'doutoramento': 500 };
+  dimensoes.profundidade = Math.min(100, Math.round((charsMedios / (charMin[nivelKey] || 300)) * 100));
+
+  /* Score final ponderado */
+  const score = Math.round(
+    dimensoes.paginas    * 0.35 +
+    dimensoes.densidade  * 0.25 +
+    dimensoes.cobertura  * 0.25 +
+    dimensoes.profundidade * 0.15
+  );
+
+  return {
+    completeness : score,
+    label        : score >= 85 ? 'Completo' : score >= 65 ? 'Parcial' : 'Superficial',
+    dimensoes,
+    palavras     : totalWords(ast),
+    paginas_est  : Math.round(totalWords(ast) / 370 * 10) / 10,
+  };
+}
+
+function totalWords(ast) {
+  return (ast.sections || []).reduce(
+    (acc, s) => acc + (s.paragraphs || []).join(' ').split(/\s+/).filter(Boolean).length, 0
+  );
+}
+
+/* ================================================================
+   ISSUE ACTIONS — v74
+   Cada issue tem uma acção correctiva sugerida.
+   O frontend pode executá-la automaticamente.
+================================================================ */
+const ISSUE_ACTIONS = {
+  EMPTY_SECTIONS     : { label: 'Regenerar secções vazias',   acao: 'regenerar_capitulo',  auto: true  },
+  SHORT_PARAGRAPHS   : { label: 'Enriquecer capítulo',        acao: 'editar_texto',         auto: true  },
+  AST_REPAIRED       : { label: 'Regenerar capítulo',          acao: 'regenerar_capitulo',  auto: false },
+  NO_REFERENCES      : { label: 'Gerar referências',           acao: 'gerar_capitulo_referencias', auto: true },
+  NO_CONCLUSION      : { label: 'Gerar conclusão',             acao: 'gerar_capitulo',       auto: false },
+  NO_INTRODUCTION    : { label: 'Gerar introdução',            acao: 'gerar_capitulo',       auto: false },
+  LOW_PARAGRAPH_COUNT: { label: 'Expandir conteúdo',          acao: 'editar_texto',         auto: true  },
+};
+
+function enriquecerIssuesComAccoes(issues) {
+  return (issues || []).map(issue => ({
+    ...issue,
+    action: ISSUE_ACTIONS[issue.code] || null,
+  }));
+}
+
 /* ---------------- HANDLER ---------------- */
 export default async function handler(req, res) {
   setCORS(res);
@@ -359,6 +746,8 @@ async function doCapitulo(p) {
   const capSubs   = (Array.isArray(p.capSubs)?p.capSubs:[]).slice(0,8).map(s=>String(s).substring(0,150));
 
   if (!tema||!capTit) throw new Error('tema e capTitulo obrigatórios');
+  const _startTime = Date.now(); /* v73: para telemetria */
+  let retryCount = 0;            /* v73: contar retries reais */
 
   /* v71: Cálculo de palavras exacto
      Páginas fixas: capa(1) + contracapa(1) + TOC(1) = 3
@@ -473,48 +862,112 @@ Cada secção corresponde a um subtópico listado acima.
 Cada parágrafo é uma string completa sem formatação.
 Mínimo 3 parágrafos por secção.`;
 
-  let r = await callAI([{ role:'user', content:promptAST }], { max_tokens:maxTok, temperature:0.65 });
+  /* ── v72: AST GUARANTEED ──────────────────────────────────────────
+     Nunca retorna texto puro. Sempre retorna AST válido.
+     Ordem: Tentativa 1 → Tentativa 2 → AST Repair Engine
+  ─────────────────────────────────────────────────────────────── */
 
-  function validarAST(raw) {
-    try {
-      const ast = extrairJSON(raw);
-      if (ast && ast.sections && Array.isArray(ast.sections) && ast.sections.length >= 1) {
-        const valid = ast.sections.every(s => s.title && Array.isArray(s.paragraphs) && s.paragraphs.length >= 1);
-        if (valid) return ast;
-      }
-    } catch (_) {}
-    return null;
+  /* Tentativa 1 — prompt AST completo */
+  let r = await callAI([{ role:'user', content:promptAST }], { max_tokens:maxTok, temperature:0.65 });
+  let astRaw = null;
+  try { astRaw = extrairJSON(r); } catch (_) {}
+
+  /* Tentativa 2 — prompt simplificado se AST inválido */
+  if (!validarAST(astRaw)) {
+    console.warn(`[AST v73] T1 falhou — retry simplificado — cap ${capNum}`);
+    retryCount++;
+    const promptSimples = `Escreve capítulo ${capNum} "${capTit}" sobre "${tema}".
+Subtópicos: ${subs}
+JSON APENAS, sem markdown:
+{"chapter_id":"${capNum}","title":"${capTit}","sections":[{"section_id":"${capNum}.1","title":"Primeiro subtópico","paragraphs":["Parágrafo 1.","Parágrafo 2.","Parágrafo 3."]}]}
+Português formal. Mínimo 3 parágrafos/secção.`;
+    r = await callAI([{ role:'user', content:promptSimples }], { max_tokens:maxTok, temperature:0.5 });
+    try { astRaw = extrairJSON(r); } catch (_) {}
   }
 
-  let ast = validarAST(r);
-  if (ast) return { resposta: ast, ast: true };
+  /* AST Repair Engine — garante AST válido mesmo se ambas as tentativas falharem */
+  const ast = repararAST(astRaw || r, capNum, capTit, capSubs);
+  if (ast._repaired) {
+    console.warn(`[AST v72] Reparado — cap ${capNum} — razão: ${ast._repair_reason}`);
+  }
 
-  /* v66-r2: Tentativa 2 — prompt simplificado (só JSON, sem regras de estilo) */
-  console.warn(`[AST] Tentativa 1 falhou — retry com prompt simplificado — capítulo ${capNum}`);
-  const promptSimples = `Escreve o capítulo ${capNum} "${capTit}" de um trabalho académico sobre "${tema}" em Angola.
-Subtópicos: ${subs}
-Responde APENAS com JSON válido, sem markdown, sem texto antes ou depois:
-{
-  "chapter_id": "${capNum}",
-  "title": "${capTit}",
-  "sections": [
-    {
-      "section_id": "${capNum}.1",
-      "title": "Título do subtópico",
-      "paragraphs": ["Parágrafo 1.", "Parágrafo 2.", "Parágrafo 3."]
-    }
-  ]
-}
-Mínimo 3 parágrafos por secção. Português formal angolano.`;
+  /* Document Health + Readiness */
+  const health   = calcularDocumentHealth(ast, nivelKey);
+  const readiness = calcularReadiness(ast, nivelKey, geoCtx);
 
-  r = await callAI([{ role:'user', content:promptSimples }], { max_tokens:maxTok, temperature:0.5 });
-  ast = validarAST(r);
-  if (ast) return { resposta: ast, ast: true };
+  /* v73: Rastreabilidade completa */
+  ast.version      = (ast.version || 0) + 1;
+  ast.generated_by = 'academy-engine-v73';
+  ast.generated_at = new Date().toISOString();
+  ast.retry_count  = retryCount;
 
-  /* Fallback final: texto plano — compatibilidade com frontend */
-  console.warn(`[AST] Fallback para texto — capítulo ${capNum}`);
-  const limpo = r.replace(/^cap[íi]tulo\s+\d+\s*[—\-–][^\n]*\n?/gim,'').replace(/\n{3,}/g,'\n\n').trim();
-  return { resposta: truncar(limpo, Math.round(palavras*1.1)), ast: false };
+  /* v73: Confidence Score */
+  const confidence = calcularConfidence(ast, {
+    retry_count       : retryCount,
+    ast_repaired      : ast._repaired || false,
+    repair_reason     : ast._repair_reason || null,
+    generation_time_ms: Date.now() - _startTime,
+  });
+
+  /* v73: Telemetria assíncrona — não bloqueia a resposta */
+  const totalWords = (ast.sections || []).reduce(
+    (acc, s) => acc + (s.paragraphs || []).join(' ').split(/\s+/).length, 0
+  );
+  registarTelemetria({
+    tema               : tema,
+    nivel              : nivel,
+    area               : areaKey,
+    tipo               : tipo,
+    cap_num            : capNum,
+    ast_generated      : true,
+    ast_repaired       : ast._repaired || false,
+    repair_reason      : ast._repair_reason || null,
+    retry_count        : retryCount,
+    health             : health.health,
+    confidence         : confidence.confidence,
+    ready              : readiness.ready,
+    generation_time_ms : Date.now() - _startTime,
+    pages_requested    : totalPags,
+    word_count         : totalWords,
+    model_used         : 'openrouter/auto',
+  }); /* fire-and-forget */
+
+  /* v74: Completeness Score */
+  const completeness = calcularCompleteness(
+    ast, palavras * (capSubs.length || 3), totalCaps, nivelKey
+  );
+
+  /* v74: Enriquecer issues com acções */
+  health.issues   = enriquecerIssuesComAccoes(health.issues);
+
+  /* v74: first_pass_success na telemetria */
+  const firstPassSuccess = retryCount === 0 && !ast._repaired;
+  registarTelemetria({
+    tema, nivel, area: areaKey, tipo, cap_num: capNum,
+    ast_generated      : true,
+    ast_repaired       : ast._repaired || false,
+    repair_reason      : ast._repair_reason || null,
+    retry_count        : retryCount,
+    first_pass_success : firstPassSuccess,
+    health             : health.health,
+    confidence         : confidence.confidence,
+    completeness       : completeness.completeness,
+    ready              : readiness.ready,
+    generation_time_ms : Date.now() - _startTime,
+    pages_requested    : totalPags,
+    word_count         : completeness.palavras,
+    model_used         : 'openrouter/auto',
+  });
+
+  return {
+    resposta    : ast,
+    ast         : true,
+    health,
+    readiness,
+    confidence,
+    completeness,
+    _guaranteed : true,
+  };
 }
 
 /* ---------------- REFERÊNCIAS (v65: por área e nível) ---------------- */

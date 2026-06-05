@@ -7821,7 +7821,106 @@ if(typeof window !== 'undefined'){
    Converte E.secs no documento canónico:
    tipos: 'titulo_cap' | 'h2' | 'h3' | 'paragrafo' | 'ref_item' | 'espaco'
 ════════════════════════════════════════════════ */
+/* ╔══════════════════════════════════════════════════════════════╗
+   ║  DOCUMENT AST CONSUMER — v66                                ║
+   ║  Fase 2: frontend consome JSON estruturado do backend       ║
+   ║  Strangler: se AST disponível, usa-o; senão, texto legado   ║
+   ╚══════════════════════════════════════════════════════════════╝ */
+
+/* Converte AST de um capítulo em texto plano (para compatibilidade
+   com editor, AIL/TRE, auto-save, etc.) */
+function astParaTexto(ast) {
+  if (!ast || !ast.sections) return '';
+  return ast.sections.map(sec => {
+    const titulo = sec.section_id
+      ? `${sec.section_id} ${sec.title}`
+      : sec.title;
+    const paras = (sec.paragraphs || []).join('\n\n');
+    return `${titulo}\n\n${paras}`;
+  }).join('\n\n');
+}
+
+/* Converte AST directamente em blocos semânticos — sem inferência de texto.
+   É o salto da Fase 2: elimina docEstruturarSemantico para capítulos com AST. */
+function astParaBlocos(ast, secMeta) {
+  if (!ast || !ast.sections) return null;
+  const isRef = /refer[eê]ncias|bibliograf/i.test(ast.title || '');
+  const blocos = [];
+
+  /* Título do capítulo */
+  blocos.push({
+    tipo    : 'titulo_cap',
+    titulo  : ast.title,
+    num     : ast.chapter_id,
+    isRef,
+    /* v66: ID hierárquico explícito */
+    _cid    : `c${ast.chapter_id}`,
+  });
+
+  if (isRef) {
+    /* Referências: cada parágrafo é um ref_item */
+    for (const sec of ast.sections) {
+      for (const para of (sec.paragraphs || [])) {
+        if (para.trim()) blocos.push({ tipo: 'ref_item', texto: para.trim() });
+      }
+    }
+    return blocos;
+  }
+
+  /* Capítulo normal: secções → h3 + parágrafos */
+  for (const sec of ast.sections) {
+    /* Subtítulo */
+    blocos.push({
+      tipo    : 'h3',
+      texto   : `${sec.section_id || ''} ${sec.title}`.trim(),
+      /* v66: IDs hierárquicos */
+      _cid    : `c${ast.chapter_id}`,
+      _sid    : sec.section_id,
+    });
+    /* Parágrafos */
+    let primeiro = true;
+    for (const para of (sec.paragraphs || [])) {
+      if (!para.trim()) continue;
+      blocos.push({
+        tipo     : 'paragrafo',
+        texto    : para.trim(),
+        noIndent : primeiro,
+        _cid     : `c${ast.chapter_id}`,
+        _sid     : sec.section_id,
+      });
+      primeiro = false;
+    }
+  }
+  return blocos;
+}
+
+/* FIM DOCUMENT AST CONSUMER v66 */
+
 function docEstruturarSemantico(secs){
+  /* v66: Strangler — se secção tem AST válido, usa astParaBlocos directamente.
+     Se não tem (texto legado), usa o parser de texto original.
+     Ambos os caminhos produzem o mesmo formato de blocos para preRenderPipeline. */
+  const todosBlocos = [];
+
+  for (const sec of secs) {
+    /* CAMINHO 1 — AST disponível (v66) */
+    if (sec.ast && typeof sec.ast === 'object' && sec.ast.sections) {
+      const blocos = astParaBlocos(sec.ast, sec);
+      if (blocos && blocos.length > 0) {
+        todosBlocos.push(...blocos);
+        continue;
+      }
+    }
+
+    /* CAMINHO 2 — Texto legado (parser original, preservado intacto) */
+    todosBlocos.push(...docEstruturarSemanticoTexto(sec));
+  }
+
+  return todosBlocos;
+}
+
+/* Parser de texto legado — renomeado para não quebrar nada */
+function docEstruturarSemanticoTexto(sec){
   const REG_H2=/^\d+\.\d+(?:\s+\S)/;
   const REG_H3=/^\d+\.\d+\.\d+(?:\s+\S)/;
   const REG_CAPS_TITLE=/^[A-ZÁÀÂÃÉÊÍÓÔÕÚÜÇ][^.!?]{3,60}$/; /* título implícito */
@@ -10999,7 +11098,16 @@ async function iniciarGer(retomar){
 
     E.secs[i].e='p';
     E.secs[i].c=c||'[Secção vazia]';
-    aSecDOM(i,'p','✓ PRONTO',c);
+
+    /* v66: se o backend retornou AST, guardar para preRenderPipeline usar directamente */
+    if(typeof c === 'object' && c !== null && c.sections){
+      E.secs[i].ast = c;           /* AST estruturado */
+      E.secs[i].c   = astParaTexto(c); /* texto plano para editor/AIL/TRE */
+    } else {
+      E.secs[i].ast = null;        /* sem AST — usar parser legado */
+    }
+
+    aSecDOM(i,'p','✓ PRONTO', E.secs[i].c);
     aBarra(i+1,E.est.length);
 
     /* v52: Registar na memória do documento */

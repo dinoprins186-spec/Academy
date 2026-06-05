@@ -4779,72 +4779,7 @@ function sGeracao(){
       </div>`:''}
     </div>
 
-    <!-- PÓS-TEXTUAIS -->
-    <div style="margin-top:12px;padding:14px;background:var(--z2);border:1px solid var(--e0);border-radius:var(--r)">
-      <div style="font-family:var(--fm);font-size:8px;color:var(--t3);letter-spacing:.1em;margin-bottom:10px">ELEMENTOS PÓS-TEXTUAIS</div>
-      <div style="font-family:var(--fm);font-size:9px;color:var(--t3);margin-bottom:10px;line-height:1.5">
-        Adicionados após as Referências Bibliográficas. Selecciona os que precisas.
-      </div>
-      <div style="display:flex;flex-direction:column;gap:6px">
 
-        <!-- Glossário -->
-        <div style="background:var(--z3);border:.5px solid var(--e0);border-radius:var(--r2);padding:10px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div style="font-family:var(--fm);font-size:9px;color:var(--t2);font-weight:600">📖 Glossário</div>
-            <button class="btn G s" style="font-size:9px;padding:4px 10px" onclick="_posTextualAdd('glossario')">+ Adicionar termo</button>
-          </div>
-          ${(E.cfg.postextuais||[]).filter(p=>p.tipo==='glossario').length===0
-            ? `<div style="font-family:var(--fm);font-size:9px;color:var(--t4)">Nenhum termo adicionado</div>`
-            : (E.cfg.postextuais||[]).filter(p=>p.tipo==='glossario').map((p,i)=>`
-              <div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:4px">
-                <div style="flex:1;font-family:var(--fm);font-size:9px;color:var(--t2)"><strong>${p.termo}</strong> — ${p.definicao}</div>
-                <button style="background:transparent;border:none;color:var(--t4);cursor:pointer;font-size:11px" onclick="E.cfg.postextuais=E.cfg.postextuais.filter((_,j)=>j!==${(E.cfg.postextuais||[]).indexOf(p)});irPara('editor')">✕</button>
-              </div>`).join('')}
-        </div>
-
-        <!-- Lista de Abreviaturas -->
-        <div style="background:var(--z3);border:.5px solid var(--e0);border-radius:var(--r2);padding:10px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div style="font-family:var(--fm);font-size:9px;color:var(--t2);font-weight:600">🔤 Lista de Abreviaturas</div>
-            <button class="btn G s" style="font-size:9px;padding:4px 10px" onclick="_posTextualAdd('abreviatura')">+ Adicionar</button>
-          </div>
-          ${(E.cfg.postextuais||[]).filter(p=>p.tipo==='abreviatura').length===0
-            ? `<div style="font-family:var(--fm);font-size:9px;color:var(--t4)">Nenhuma abreviatura</div>`
-            : (E.cfg.postextuais||[]).filter(p=>p.tipo==='abreviatura').map((p,i)=>`
-              <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-                <div style="flex:1;font-family:var(--fm);font-size:9px;color:var(--t2)"><strong>${p.abrev}</strong> — ${p.significado}</div>
-                <button style="background:transparent;border:none;color:var(--t4);cursor:pointer;font-size:11px" onclick="E.cfg.postextuais=E.cfg.postextuais.filter((_,j)=>j!==${(E.cfg.postextuais||[]).indexOf(p)});irPara('editor')">✕</button>
-              </div>`).join('')}
-        </div>
-
-        <!-- Apêndice -->
-        <div style="background:var(--z3);border:.5px solid var(--e0);border-radius:var(--r2);padding:10px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div style="font-family:var(--fm);font-size:9px;color:var(--t2);font-weight:600">📎 Apêndice <span style="font-weight:400;color:var(--t4)">(material próprio)</span></div>
-            <button class="btn G s" style="font-size:9px;padding:4px 10px" onclick="_posTextualAdd('apendice')">+ Adicionar</button>
-          </div>
-          ${(E.cfg.postextuais||[]).filter(p=>p.tipo==='apendice').map((p,i)=>`
-            <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-              <div style="flex:1;font-family:var(--fm);font-size:9px;color:var(--t2)">${p.titulo}</div>
-              <button style="background:transparent;border:none;color:var(--t4);cursor:pointer;font-size:11px" onclick="E.cfg.postextuais=E.cfg.postextuais.filter((_,j)=>j!==${(E.cfg.postextuais||[]).indexOf(p)});irPara('editor')">✕</button>
-            </div>`).join('')||`<div style="font-family:var(--fm);font-size:9px;color:var(--t4)">Nenhum apêndice</div>`}
-        </div>
-
-        <!-- Anexo (material de terceiros) -->
-        <div style="background:var(--z3);border:.5px solid var(--e0);border-radius:var(--r2);padding:10px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div style="font-family:var(--fm);font-size:9px;color:var(--t2);font-weight:600">📂 Anexo <span style="font-weight:400;color:var(--t4)">(material externo)</span></div>
-            <button class="btn G s" style="font-size:9px;padding:4px 10px" onclick="_posTextualAdd('anexo')">+ Adicionar</button>
-          </div>
-          ${(E.cfg.postextuais||[]).filter(p=>p.tipo==='anexo').map((p,i)=>`
-            <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-              <div style="flex:1;font-family:var(--fm);font-size:9px;color:var(--t2)">${p.titulo}</div>
-              <button style="background:transparent;border:none;color:var(--t4);cursor:pointer;font-size:11px" onclick="E.cfg.postextuais=E.cfg.postextuais.filter((_,j)=>j!==${(E.cfg.postextuais||[]).indexOf(p)});irPara('editor')">✕</button>
-            </div>`).join('')||`<div style="font-family:var(--fm);font-size:9px;color:var(--t4)">Nenhum anexo</div>`}
-        </div>
-
-      </div>
-    </div>
   </div>`;
 }
 
@@ -5049,11 +4984,44 @@ function sEditor(secsArg,cfgArg,qualArg,isEx){
     </div>
   </div>`).join('')}
 
-  <div class="al al-v" style="margin-top:16px;font-size:12px">
-    ✓ Grupo AGEA Comercial · CEO Adelino Graça · ACADEMY${isEx?' — Exemplar Oficial':''}
-  </div>
-  ${!isEx?`<div id="graficosContainer"></div>`:''}
+  <div id="graficosContainer"></div>
+  ${!isEx ? _renderPanelPostextuais(cfg) : ''}
   ${RODAPE_HTML}`;
+}
+
+/* Painel de pós-textuais visível no sEditor após a geração */
+function _renderPanelPostextuais(cfg){
+  if(!cfg) return '';
+  const pt = cfg.postextuais||[];
+  const mi = cfg.mediaItems||[];
+  return `
+  <div style="margin-top:20px;padding:14px;background:var(--z2);border:1px solid var(--e0);border-radius:var(--r)">
+    <div style="font-family:var(--fm);font-size:8px;color:var(--t3);letter-spacing:.1em;margin-bottom:12px">ELEMENTOS EXTRA DO DOCUMENTO</div>
+
+    <!-- Media -->
+    <div style="margin-bottom:10px">
+      <div style="font-family:var(--fm);font-size:9px;color:var(--t2);font-weight:600;margin-bottom:6px">🖼 Imagens / 📊 Tabelas / 📈 Gráficos</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn G s" style="font-size:9px" onclick="document.getElementById('mediaImgEd').click()">+ Imagem</button>
+        <button class="btn G s" style="font-size:9px" onclick="_mediaAddTabela()">+ Tabela</button>
+        <button class="btn G s" style="font-size:9px" onclick="_mediaAddGrafico()">+ Gráfico</button>
+        <input type="file" id="mediaImgEd" accept="image/*" multiple style="display:none" onchange="_mediaAddImagem(this)"/>
+      </div>
+      ${mi.length>0?`<div style="margin-top:6px">${mi.map((m,i)=>`<span style="font-family:var(--fm);font-size:9px;background:var(--z3);padding:3px 8px;border-radius:20px;margin:2px;display:inline-block">${m.tipo==='imagem'?'🖼':m.tipo==='tabela'?'📊':'📈'} ${m.legenda||m.titulo||'item'} <span onclick="E.cfg.mediaItems.splice(${i},1);irPara('editor')" style="cursor:pointer;color:var(--t4);margin-left:4px">✕</span></span>`).join('')}</div>`:''}
+    </div>
+
+    <!-- Pós-textuais -->
+    <div>
+      <div style="font-family:var(--fm);font-size:9px;color:var(--t2);font-weight:600;margin-bottom:6px">📚 Pós-textuais</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+        <button class="btn G s" style="font-size:9px" onclick="_posTextualAdd('glossario')">+ Glossário</button>
+        <button class="btn G s" style="font-size:9px" onclick="_posTextualAdd('abreviatura')">+ Abreviaturas</button>
+        <button class="btn G s" style="font-size:9px" onclick="_posTextualAdd('apendice')">+ Apêndice</button>
+        <button class="btn G s" style="font-size:9px" onclick="_posTextualAdd('anexo')">+ Anexo</button>
+      </div>
+      ${pt.length>0?`<div>${pt.map((p,i)=>`<span style="font-family:var(--fm);font-size:9px;background:var(--z3);padding:3px 8px;border-radius:20px;margin:2px;display:inline-block">${p.tipo==='glossario'?'📖':p.tipo==='abreviatura'?'🔤':p.tipo==='apendice'?'📎':'📂'} ${p.termo||p.abrev||p.titulo||p.tipo} <span onclick="E.cfg.postextuais.splice(${i},1);irPara('editor')" style="cursor:pointer;color:var(--t4);margin-left:4px">✕</span></span>`).join('')}</div>`:'<div style="font-family:var(--fm);font-size:9px;color:var(--t4)">Nenhum elemento adicionado</div>'}
+    </div>
+  </div>`;
 }
 
 function sExViewer(){

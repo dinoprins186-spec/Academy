@@ -1,6 +1,7 @@
 /* =======================================================================
    ACADEMY ENGINE - SAAS BLINDADO (PRODUÇÃO)
-   v65 FINAL: SISTEMA DE PROMPTS ESTRATIFICADO
+   v66: DOCUMENT AST — backend gera JSON estruturado
+   O frontend deixa de inferir estrutura de texto
    - Perfis por nível: Ensino Médio / Licenciatura / Mestrado / Doutoramento
    - Perfis por área: Ciências / Humanidades / Gestão / Direito / Saúde / Engenharia
    - Citações autor-ano obrigatórias no corpo do texto
@@ -345,9 +346,49 @@ ${antiIA(capNum, totalCaps)}
 
 Escreve o capítulo completo agora.`;
 
-  const r = await callAI([{ role:'user', content:prompt }], { max_tokens:maxTok, temperature:0.65 });
+  /* v66: Prompt para gerar AST JSON em vez de texto plano */
+  const promptAST = prompt + `
+
+FORMATO DE SAÍDA OBRIGATÓRIO — JSON:
+Não escrevas texto livre. Responde APENAS com este JSON (sem markdown, sem \`\`\`):
+{
+  "chapter_id": "${capNum}",
+  "title": "${capTit}",
+  "sections": [
+    {
+      "section_id": "${capNum}.1",
+      "title": "Título do subtópico",
+      "paragraphs": [
+        "Texto do parágrafo 1.",
+        "Texto do parágrafo 2.",
+        "Texto do parágrafo 3."
+      ]
+    }
+  ]
+}
+Cada secção corresponde a um subtópico listado acima.
+Cada parágrafo é uma string completa sem formatação.
+Mínimo 3 parágrafos por secção.`;
+
+  const r = await callAI([{ role:'user', content:promptAST }], { max_tokens:maxTok, temperature:0.65 });
+
+  /* Tentar parsear como AST — fallback para texto se falhar */
+  try {
+    const ast = extrairJSON(r);
+    if (ast && ast.sections && Array.isArray(ast.sections)) {
+      /* Validar AST mínimo */
+      const valid = ast.sections.every(s => s.title && Array.isArray(s.paragraphs) && s.paragraphs.length >= 1);
+      if (valid) {
+        return { resposta: ast, ast: true }; /* AST válido */
+      }
+    }
+  } catch (e) {
+    console.warn('[v66] AST parse falhou, fallback para texto:', e.message);
+  }
+
+  /* Fallback: retornar texto plano (compatibilidade com frontend antigo) */
   const limpo = r.replace(/^cap[íi]tulo\s+\d+\s*[—\-–][^\n]*\n?/gim,'').replace(/\n{3,}/g,'\n\n').trim();
-  return { resposta: truncar(limpo, Math.round(palavras*1.1)) };
+  return { resposta: truncar(limpo, Math.round(palavras*1.1)), ast: false };
 }
 
 /* ---------------- REFERÊNCIAS (v65: por área e nível) ---------------- */

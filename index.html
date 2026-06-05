@@ -10979,25 +10979,21 @@ async function iniciarGer(retomar){
   if(!E.est)return;
   _genCancelado=false;
   E.genFim=false;
-
-  /* v52: Reset da memória do documento no início de cada nova geração */
   DOC_MEMORY.reset();
-  /* v53: Reset do grafo de argumentação */
   ARGUMENT_GRAPH.reset();
   _treRetroRefCount = 0;
 
-  /* Retomar de progresso guardado */
   let iniciarEm=0;
   if(retomar){
     const prog=genTemProgresso();
     if(prog){
       E.secs=prog.secs;
       iniciarEm=E.secs.findIndex(s=>s.e!=='p'&&s.e!=='x');
-      if(iniciarEm===-1){iniciarEm=E.secs.length;}
+      if(iniciarEm===-1)iniciarEm=E.secs.length;
     }
   }
   if(!retomar||iniciarEm===0){
-    E.secs=E.est.map((c,i)=>({id:i,nome:`CAP. ${c.num||i+1} — ${c.titulo}`,titulo:c.titulo,num:c.num,subs:c.subs||[],e:'a',c:''}));
+    E.secs=E.est.map((c,i)=>({id:i,nome:`CAP. ${c.num||i+1} — ${c.titulo}`,titulo:c.titulo,num:c.num,subs:c.subs||[],e:'a',c:'',ast:null}));
   }
 
   irPara('geracao');
@@ -11008,137 +11004,118 @@ async function iniciarGer(retomar){
 
   for(let i=iniciarEm;i<E.est.length;i++){
     if(_genCancelado)break;
+
     const cap=E.est[i];
     E.secs[i].e='g';
     aSecDOM(i,'g','EM CURSO');
 
-    /* Estimativa de tempo restante */
     const restEl=document.getElementById('estimG');
     if(restEl){
-      const caps_rest=E.est.length-i;
       const seg_med=_DELAY(i)/1000+8;
-      const min=Math.round(caps_rest*seg_med/60);
-      restEl.textContent=min>1?`~${min} min`:`~${caps_rest*Math.round(seg_med)}s`;
+      const min=Math.round((E.est.length-i)*seg_med/60);
+      restEl.textContent=min>1?`~${min} min`:`~${(E.est.length-i)*Math.round(seg_med)}s`;
     }
 
-    /* Delay adaptativo — aumenta com o número de capítulos */
     if(i>iniciarEm)await new Promise(r=>setTimeout(r,_DELAY(i)));
     if(_genCancelado)break;
 
-    let tentativas=0,c='';
-    while(tentativas<4&&!c&&!_genCancelado){
-      try{
-        /* v52: gerar payload extra da Intelligence Layer */
-        const _ailExtra = ailGerarPayloadExtra(
-          cap, E.est.length,
-          E.cfg.tema, tp.n, E.cfg.nivel
-        );
-        /* v53: gerar payload extra do Reasoning Engine */
-        const _treExtra = treGerarPayloadExtra(
-          cap, E.est.length, _ailExtra.areaDetectada
-        );
+    /* ── GERAÇÃO DO CAPÍTULO ───────────────────────────────────────
+       Lógica simples: tenta até 4 vezes, para quando tiver resultado.
+       Sem validações que possam descartar conteúdo válido.
+    ─────────────────────────────────────────────────────────────── */
+    const isRef = cap.titulo&&(cap.titulo.toLowerCase().includes('refer')||cap.titulo.toLowerCase().includes('bibliog'));
+    const acaoGer = isRef ? 'gerar_capitulo_referencias' : 'gerar_capitulo';
 
-        c=await callAcademyAPI({
-          acao:(cap.titulo&&(cap.titulo.toLowerCase().includes('refer')|| cap.titulo.toLowerCase().includes('bibliog')))?'gerar_capitulo_referencias':'gerar_capitulo',
-          tema:E.cfg.tema,
-          tipoTrabalho:tp.n,
-          nivel:E.cfg.nivel,
+    let resultado = null;
+    let tentativas = 0;
+
+    while(!resultado && tentativas < 4 && !_genCancelado){
+      try{
+        const raw = await callAcademyAPI({
+          acao         : acaoGer,
+          tema         : E.cfg.tema,
+          tipoTrabalho : tp.n,
+          nivel        : E.cfg.nivel,
           totalPags,
-          capNum:cap.num,
-          capTitulo:cap.titulo,
-          capSubs:cap.subs||[],
-          palavrasPorCap:Math.max(200,pagsRef*220),
-          objetivo:(E.plano?.objetivo||'').substring(0,120),
-          hipotese:(E.plano?.hipotese||'').substring(0,100),
-          metodologia:(E.plano?.metodologia||'').substring(0,100),
-          /* ── Força numeração progressiva nos subtítulos ── */
-          numeracaoProgressiva:true,
-          instrucaoSubtitulos:`IMPORTANTE: Cada subtópico listado em capSubs DEVE aparecer no texto como subtítulo com a sua numeração exacta (ex: "1.1 Contextualização", "2.3 Análise Crítica"). Coloca o subtítulo numa linha separada antes do parágrafo correspondente.`,
-          /* ── v51: Anti-detecção IA ── */
-          instrucaoVariacao: _INSTRUCAO_ANTI_IA(cap.num, cap.subs?.length||0),
-          /* ── v52: Intelligence Layer ── */
-          instrucaoInteligencia: _ailExtra.instrucaoInteligencia,
-          areaDetectada: _ailExtra.areaDetectada,
-          /* ── v53: Reasoning Engine ── */
-          instrucaoRaciocinio: _treExtra.instrucaoRaciocinio,
+          capNum       : cap.num,
+          capTitulo    : cap.titulo,
+          capSubs      : cap.subs||[],
+          totalCaps    : E.est.length,
+          palavrasPorCap: Math.max(200, pagsRef*220),
+          objetivo     : (E.plano?.objetivo||'').substring(0,120),
+          hipotese     : (E.plano?.hipotese||'').substring(0,100),
+          metodologia  : (E.plano?.metodologia||'').substring(0,100),
+          instrucaoSubtitulos: `Cada subtópico em capSubs DEVE aparecer como subtítulo numerado em linha própria.`,
+          instrucaoVariacao  : _INSTRUCAO_ANTI_IA(cap.num, cap.subs?.length||0),
         });
 
-        /* v52: Validar capítulo — detectar repetição e padrões mecânicos
-           v66 fix: ignorar se c é objecto AST — validação só funciona em texto */
-        const _cIsTexto = c && typeof c === 'string';
-        if(_cIsTexto && c.length > 50 && tentativas < 3){
-          const validacao = _validarCapituloGerado(c);
-          if(!validacao.ok){
-            console.warn(`[AILv52] Cap ${cap.num} falhou validação: ${validacao.motivo} — a regenerar (tentativa ${tentativas+1})`);
-            c = ''; tentativas++; continue;
-          }
-          /* v53: Validar contradições argumentativas */
-          const validacaoTRE = treValidarCapitulo(c, cap.num);
-          if(!validacaoTRE.ok){
-            console.warn(`[TREv53] Cap ${cap.num} falhou validação: ${validacaoTRE.motivo} — a regenerar (tentativa ${tentativas+1})`);
-            c = ''; tentativas++; continue;
-          }
+        /* raw pode ser string (texto) ou objecto (AST) — ambos são válidos */
+        if(raw && (typeof raw === 'object' || (typeof raw === 'string' && raw.length > 30))){
+          resultado = raw;
+        } else {
+          tentativas++;
         }
-
       }catch(er){
         tentativas++;
-        const isQ=er.message&&(er.message.includes('429')||er.message.includes('RESOURCE_EXHAUSTED')||er.message.includes('quota')||er.message.includes('rate'));
-        if(isQ&&tentativas<4){
-          /* Rate limit — espera longa antes de tentar novamente */
-          const espera=tentativas===1?_RETRY_QUOTA:_RETRY_QUOTA*tentativas;
+        const isQ = er.message&&(er.message.includes('429')||er.message.includes('quota')||er.message.includes('rate')||er.message.includes('RESOURCE_EXHAUSTED'));
+        if(isQ && tentativas < 4){
+          const espera = tentativas * _RETRY_QUOTA;
           aSecDOM(i,'g',`Aguarda ${Math.round(espera/1000)}s…`);
-          if(restEl)restEl.textContent='Limite da API — a aguardar…';
-          await new Promise(r=>setTimeout(r,espera));
-        } else if(tentativas>=4){
-          c='[Secção não gerada. Toca em ↺ para regenerar este capítulo.]';
+          if(restEl) restEl.textContent='Limite da API — a aguardar…';
+          await new Promise(r=>setTimeout(r, espera));
         }
       }
     }
 
-    if(_genCancelado){
-      /* Guardar o que foi gerado antes de parar */
-      genGuardarProgresso();
-      break;
+    if(_genCancelado){ genGuardarProgresso(); break; }
+
+    /* ── PROCESSAR RESULTADO ──────────────────────────────────────
+       Normalizar para texto + AST independentemente do formato recebido
+    ─────────────────────────────────────────────────────────────── */
+    let textoFinal = '[Secção não gerada. Toca em ↺ para regenerar.]';
+    let astFinal   = null;
+
+    if(resultado){
+      if(typeof resultado === 'object' && resultado.sections){
+        /* AST válido do backend */
+        astFinal   = resultado;
+        textoFinal = astParaTexto(resultado);
+      } else if(typeof resultado === 'string' && resultado.trim().startsWith('{')){
+        /* Tentar parsear como AST */
+        try{
+          const parsed = JSON.parse(resultado);
+          if(parsed && parsed.sections){
+            astFinal   = parsed;
+            textoFinal = astParaTexto(parsed);
+          } else {
+            textoFinal = resultado;
+          }
+        }catch(_){ textoFinal = resultado; }
+      } else if(typeof resultado === 'string'){
+        textoFinal = resultado;
+      }
     }
 
-    /* v66 fix: detectar AST antes de qualquer processamento
-       callAcademyAPI retorna envelope.data.resposta — pode ser string ou objecto */
-    let _textoFinal = c;
-    let _astFinal   = null;
-    if(c && typeof c === 'object' && c.sections && Array.isArray(c.sections)){
-      /* Backend retornou AST válido */
-      _astFinal   = c;
-      _textoFinal = astParaTexto(c); /* converter para texto para editor/AIL/TRE */
-    } else if(typeof c === 'string' && c.trim().startsWith('{')){
-      /* Backend retornou AST como string JSON — parsear */
-      try{
-        const parsed = JSON.parse(c);
-        if(parsed && parsed.sections && Array.isArray(parsed.sections)){
-          _astFinal   = parsed;
-          _textoFinal = astParaTexto(parsed);
-        }
-      }catch(e){ /* não era JSON válido — usar como texto */ }
-    }
-
+    /* ── GUARDAR E AVANÇAR ── */
     E.secs[i].e   = 'p';
-    E.secs[i].c   = _textoFinal || '[Secção vazia]';
-    E.secs[i].ast = _astFinal;
+    E.secs[i].c   = textoFinal;
+    E.secs[i].ast = astFinal;
 
-    aSecDOM(i,'p','✓ PRONTO', E.secs[i].c);
-    aBarra(i+1,E.est.length);
+    aSecDOM(i,'p','✓ PRONTO', textoFinal);
+    aBarra(i+1, E.est.length);
 
-    /* v52: Registar na memória do documento */
-    ailRegistarCapitulo(c);
-    /* v53: Alimentar o grafo de argumentação */
-    treRegistarCapitulo(c, cap.num);
+    /* Alimentar AIL/TRE com texto (nunca com objecto) */
+    if(textoFinal && textoFinal.length > 30 && !textoFinal.startsWith('[')){
+      ailRegistarCapitulo(textoFinal);
+      treRegistarCapitulo(textoFinal, cap.num);
+    }
 
-    /* Guardar progresso a cada capítulo */
     genGuardarProgresso();
-    autoGuardar(); /* auto-save no arquivo pessoal */
+    autoGuardar();
   }
 
   if(_genCancelado){
-    autoGuardar(); /* guardar o que foi feito até agora */
+    autoGuardar();
     mostrarToast('⏹ Geração pausada — trabalho guardado. Podes retomar.');
     return;
   }
@@ -11146,11 +11123,9 @@ async function iniciarGer(retomar){
   const restEl2=document.getElementById('estimG');
   if(restEl2)restEl2.textContent='Concluído ✓';
 
-  /* Limpar progresso guardado — trabalho completo */
   genLimparProgresso();
   limparRascunhoPendente();
 
-  /* Scoring */
   const totalWords=E.secs.reduce((s,x)=>s+(x.c?.split(/\s+/).length||0),0);
   const targetWords=totalPags*240;
   const fill=Math.min(100,Math.round(totalWords/targetWords*100));
@@ -11159,7 +11134,7 @@ async function iniciarGer(retomar){
 
   E.genFim=true;
   addDoc({tipo:tp.s||tp.n,tema:E.cfg.tema,pags:nPags(),qual:E.qual?.total});
-  autoGuardar(); /* garantir que fica guardado completo */
+  autoGuardar();
   gerarGraficos();
 
   const ls=document.getElementById('ls');

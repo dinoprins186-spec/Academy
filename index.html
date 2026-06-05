@@ -9665,7 +9665,10 @@ function mdParaHtml(txt){
    asteriscos, linhas soltas, overflow.
 ════════════════════════════════════════════════════════ */
 function sanitizarConteudo(txt){
-  if(!txt||typeof txt!=='string')return'';
+  /* v66: se for AST ou objecto, retornar vazio — o processamento é feito por astParaBlocos */
+  if(!txt) return '';
+  if(typeof txt === 'object') return '';
+  if(typeof txt !== 'string') return '';
 
   let t=txt;
 
@@ -11096,16 +11099,28 @@ async function iniciarGer(retomar){
       break;
     }
 
-    E.secs[i].e='p';
-    E.secs[i].c=c||'[Secção vazia]';
-
-    /* v66: se o backend retornou AST, guardar para preRenderPipeline usar directamente */
-    if(typeof c === 'object' && c !== null && c.sections){
-      E.secs[i].ast = c;           /* AST estruturado */
-      E.secs[i].c   = astParaTexto(c); /* texto plano para editor/AIL/TRE */
-    } else {
-      E.secs[i].ast = null;        /* sem AST — usar parser legado */
+    /* v66 fix: detectar AST antes de qualquer processamento
+       callAcademyAPI retorna envelope.data.resposta — pode ser string ou objecto */
+    let _textoFinal = c;
+    let _astFinal   = null;
+    if(c && typeof c === 'object' && c.sections && Array.isArray(c.sections)){
+      /* Backend retornou AST válido */
+      _astFinal   = c;
+      _textoFinal = astParaTexto(c); /* converter para texto para editor/AIL/TRE */
+    } else if(typeof c === 'string' && c.trim().startsWith('{')){
+      /* Backend retornou AST como string JSON — parsear */
+      try{
+        const parsed = JSON.parse(c);
+        if(parsed && parsed.sections && Array.isArray(parsed.sections)){
+          _astFinal   = parsed;
+          _textoFinal = astParaTexto(parsed);
+        }
+      }catch(e){ /* não era JSON válido — usar como texto */ }
     }
+
+    E.secs[i].e   = 'p';
+    E.secs[i].c   = _textoFinal || '[Secção vazia]';
+    E.secs[i].ast = _astFinal;
 
     aSecDOM(i,'p','✓ PRONTO', E.secs[i].c);
     aBarra(i+1,E.est.length);

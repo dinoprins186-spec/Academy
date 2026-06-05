@@ -2937,7 +2937,11 @@ async function sbProcessar(id){
 async function sbCheckAprovados(){
   try{
     const uid=sbUserId();
-    const r=await fetch(SB_URL+'/rest/v1/pagamentos?utilizador_id=eq.'+uid+'&estado=eq.aprovado&order=criado_em.desc',{headers:SB_H()});
+    /* Tentar utilizador_id primeiro, depois user_id como fallback */
+    let r=await fetch(SB_URL+'/rest/v1/pagamentos?utilizador_id=eq.'+uid+'&estado=eq.aprovado&order=criado_em.desc',{headers:SB_H()});
+    if(!r.ok){
+      r=await fetch(SB_URL+'/rest/v1/pagamentos?user_id=eq.'+uid+'&estado=eq.aprovado&order=criado_em.desc',{headers:SB_H()});
+    }
     if(!r.ok)return;
     const rows=await r.json();
     for(const row of rows){
@@ -2990,7 +2994,7 @@ async function sbSalvarDoc(doc){
   if(!doc||!doc.id)return;
   const uid=sbUserId();
   try{
-    await fetch(`${SB_URL}/rest/v1/documentos`,{
+    const r=await fetch(`${SB_URL}/rest/v1/documentos`,{
       method:'POST',
       headers:{...SB_H(),'Prefer':'resolution=merge-duplicates'},
       body:JSON.stringify({
@@ -3009,6 +3013,8 @@ async function sbSalvarDoc(doc){
         updated_at:new Date().toISOString()
       })
     });
+    /* Ignorar erros da tabela documentos — não bloquear exportação */
+    if(!r.ok) console.warn('[SB] documentos insert:', r.status);
   }catch(e){console.warn('[SB] salvarDoc:',e);}
 }
 
@@ -7919,18 +7925,17 @@ function docEstruturarSemantico(secs){
   return todosBlocos;
 }
 
-/* Parser de texto legado — renomeado para não quebrar nada */
+/* Parser de texto legado — recebe uma secção (sec), não o array */
 function docEstruturarSemanticoTexto(sec){
   const REG_H2=/^\d+\.\d+(?:\s+\S)/;
   const REG_H3=/^\d+\.\d+\.\d+(?:\s+\S)/;
-  const REG_CAPS_TITLE=/^[A-ZÁÀÂÃÉÊÍÓÔÕÚÜÇ][^.!?]{3,60}$/; /* título implícito */
+  const REG_CAPS_TITLE=/^[A-ZÁÀÂÃÉÊÍÓÔÕÚÜÇ][^.!?]{3,60}$/;
 
   const blocos=[];
 
-  for(const sec of secs){
-    const txt=sanitizarConteudo(sec.c||sec.conteudo||'');
-    const isRef=/refer[eê]ncias|bibliograf/i.test(sec.titulo||'');
-    const numSec=sec.num||'';
+  const txt=sanitizarConteudo(sec.c||sec.conteudo||'');
+  const isRef=/refer[eê]ncias|bibliograf/i.test(sec.titulo||'');
+  const numSec=sec.num||'';
 
     /* Bloco de cabeçalho de capítulo */
     blocos.push({tipo:'titulo_cap', num:numSec, titulo:sec.titulo||'', isRef});
@@ -7998,7 +8003,6 @@ function docEstruturarSemanticoTexto(sec){
         }
       }
     }
-  }
   return blocos;
 }
 

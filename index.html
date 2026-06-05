@@ -11063,8 +11063,10 @@ async function iniciarGer(retomar){
           instrucaoRaciocinio: _treExtra.instrucaoRaciocinio,
         });
 
-        /* v52: Validar capítulo — detectar repetição e padrões mecânicos */
-        if(c && c.length > 50 && tentativas < 3){
+        /* v52: Validar capítulo — detectar repetição e padrões mecânicos
+           v66 fix: ignorar se c é objecto AST — validação só funciona em texto */
+        const _cIsTexto = c && typeof c === 'string';
+        if(_cIsTexto && c.length > 50 && tentativas < 3){
           const validacao = _validarCapituloGerado(c);
           if(!validacao.ok){
             console.warn(`[AILv52] Cap ${cap.num} falhou validação: ${validacao.motivo} — a regenerar (tentativa ${tentativas+1})`);

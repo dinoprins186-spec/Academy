@@ -346,7 +346,7 @@ ${antiIA(capNum, totalCaps)}
 
 Escreve o capítulo completo agora.`;
 
-  /* v66: Prompt para gerar AST JSON em vez de texto plano */
+  /* v66-r2: Tentativa 1 — prompt AST completo */
   const promptAST = prompt + `
 
 FORMATO DE SAÍDA OBRIGATÓRIO — JSON:
@@ -370,23 +370,46 @@ Cada secção corresponde a um subtópico listado acima.
 Cada parágrafo é uma string completa sem formatação.
 Mínimo 3 parágrafos por secção.`;
 
-  const r = await callAI([{ role:'user', content:promptAST }], { max_tokens:maxTok, temperature:0.65 });
+  let r = await callAI([{ role:'user', content:promptAST }], { max_tokens:maxTok, temperature:0.65 });
 
-  /* Tentar parsear como AST — fallback para texto se falhar */
-  try {
-    const ast = extrairJSON(r);
-    if (ast && ast.sections && Array.isArray(ast.sections)) {
-      /* Validar AST mínimo */
-      const valid = ast.sections.every(s => s.title && Array.isArray(s.paragraphs) && s.paragraphs.length >= 1);
-      if (valid) {
-        return { resposta: ast, ast: true }; /* AST válido */
+  function validarAST(raw) {
+    try {
+      const ast = extrairJSON(raw);
+      if (ast && ast.sections && Array.isArray(ast.sections) && ast.sections.length >= 1) {
+        const valid = ast.sections.every(s => s.title && Array.isArray(s.paragraphs) && s.paragraphs.length >= 1);
+        if (valid) return ast;
       }
-    }
-  } catch (e) {
-    console.warn('[v66] AST parse falhou, fallback para texto:', e.message);
+    } catch (_) {}
+    return null;
   }
 
-  /* Fallback: retornar texto plano (compatibilidade com frontend antigo) */
+  let ast = validarAST(r);
+  if (ast) return { resposta: ast, ast: true };
+
+  /* v66-r2: Tentativa 2 — prompt simplificado (só JSON, sem regras de estilo) */
+  console.warn(`[AST] Tentativa 1 falhou — retry com prompt simplificado — capítulo ${capNum}`);
+  const promptSimples = `Escreve o capítulo ${capNum} "${capTit}" de um trabalho académico sobre "${tema}" em Angola.
+Subtópicos: ${subs}
+Responde APENAS com JSON válido, sem markdown, sem texto antes ou depois:
+{
+  "chapter_id": "${capNum}",
+  "title": "${capTit}",
+  "sections": [
+    {
+      "section_id": "${capNum}.1",
+      "title": "Título do subtópico",
+      "paragraphs": ["Parágrafo 1.", "Parágrafo 2.", "Parágrafo 3."]
+    }
+  ]
+}
+Mínimo 3 parágrafos por secção. Português formal angolano.`;
+
+  r = await callAI([{ role:'user', content:promptSimples }], { max_tokens:maxTok, temperature:0.5 });
+  ast = validarAST(r);
+  if (ast) return { resposta: ast, ast: true };
+
+  /* Fallback final: texto plano — compatibilidade com frontend */
+  console.warn(`[AST] Fallback para texto — capítulo ${capNum}`);
   const limpo = r.replace(/^cap[íi]tulo\s+\d+\s*[—\-–][^\n]*\n?/gim,'').replace(/\n{3,}/g,'\n\n').trim();
   return { resposta: truncar(limpo, Math.round(palavras*1.1)), ast: false };
 }

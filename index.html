@@ -8853,6 +8853,40 @@ function htmlCapa(meta){
   </div>`;
 }
 
+function htmlContracapa(meta){
+  const{titulo,tipo,sigla,inst,prof,nivel,autor,data}=meta;
+  const autores=(autor||'').split('\n').filter(Boolean);
+  const logo1=meta.logoInst||null;
+  const logo2=meta.logoRepublica||null;
+  const temLogos=logo1||logo2;
+  return`
+  <div style="flex:1;min-height:40pt"></div>
+  ${temLogos?`
+  <div style="display:flex;align-items:center;justify-content:center;gap:18pt;padding:0 30mm 14pt">
+    ${logo2?`<img src="${logo2}" style="height:18mm;width:auto;object-fit:contain;opacity:.7"/>`:''}
+    ${logo1?`<img src="${logo1}" style="height:18mm;width:auto;object-fit:contain;opacity:.7"/>`:''}
+  </div>`:''}
+  ${inst?`<div style="font-family:Georgia,'Times New Roman',serif;font-size:9pt;letter-spacing:.16em;text-transform:uppercase;color:#555;text-align:center;padding:0 25mm">${inst}</div>`:''}
+  ${nivel?`<div style="font-family:Georgia,'Times New Roman',serif;font-size:8.5pt;color:#777;text-align:center;margin-top:4pt">${nivel}</div>`:''}
+  <div style="flex:1"></div>
+  <div style="padding:0 25mm;text-align:center">
+    <div style="border-top:1pt solid #ccc;margin-bottom:12pt"></div>
+    <div style="font-family:Georgia,'Times New Roman',serif;font-size:8.5pt;letter-spacing:.2em;text-transform:uppercase;color:#777;margin-bottom:10pt">
+      ${sigla||tipo||'TRABALHO ACADÉMICO'}
+    </div>
+    <div style="font-family:'Cormorant Garamond',Georgia,'Times New Roman',serif;font-size:${(titulo||'').length>60?'16pt':'19pt'};font-weight:600;font-style:italic;color:#222;line-height:1.35;margin-bottom:12pt">
+      ${titulo}
+    </div>
+    <div style="border-bottom:1pt solid #ccc;margin-bottom:14pt"></div>
+  </div>
+  <div style="text-align:center;padding:0 25mm">
+    ${autores.map(a=>`<div style="font-family:Georgia,'Times New Roman',serif;font-size:11pt;font-weight:600;color:#333;margin-bottom:3pt">${a}</div>`).join('')}
+    ${prof?`<div style="font-family:Georgia,'Times New Roman',serif;font-size:9.5pt;font-style:italic;color:#666;margin-top:5pt">Orientador: ${prof}</div>`:''}
+    <div style="font-family:Georgia,'Times New Roman',serif;font-size:9.5pt;color:#888;margin-top:8pt">${data||''}</div>
+  </div>
+  <div style="flex:1"></div>`;
+}
+
 /* ════════════════════════════════════════════════
    PASSO 7 — MOTOR PRINCIPAL (v48)
    TOC com páginas reais calculadas após paginação.
@@ -8912,12 +8946,31 @@ function montarDocumentoPDF(secs,meta){
     paginas.push(layoutRenderPagina(pg,{num:pgN,total:totalPgs,titulo,nomeCap:tc?'':nomeCap,watermark:wm}));
   }
 
-  /* v68: Secção de media (imagens, tabelas, gráficos) antes das referências */
-  const mediaItems = (meta.cfg || E.cfg || {}).mediaItems || [];
-  if(mediaItems.length > 0){
+  /* v71: Media por página específica
+     - Items com pag definida → inseridos na página correcta (após renderização)
+     - Items sem pag → vão para secção Anexos no final (só se existirem) */
+  const _allMedia = (meta.cfg || E.cfg || {}).mediaItems || [];
+  const _mediaSemPag = _allMedia.filter(m => !m.pag);
+
+  /* Inserir media com página definida directamente nas páginas de conteúdo */
+  const _mediaComPag = _allMedia.filter(m => m.pag);
+  _mediaComPag.forEach(item => {
+    /* Página 1=capa, 2=TOC → offset de conteúdo começa em 3 */
+    const pagIdx = Math.max(0, (item.pag || 3) - 3);
+    const pgAlvo = paginas[Math.min(pagIdx + 2 + pretexts.length, paginas.length - 1)];
+    /* Injectar HTML da imagem/gráfico no HTML da página alvo */
+    if(pgAlvo){
+      const mediaHtml = htmlMediaItem(item, _mediaComPag.indexOf(item)+1);
+      /* Adicionar após o último parágrafo da página */
+      pgAlvo.innerHTML = (pgAlvo.innerHTML||'') + mediaHtml;
+    }
+  });
+
+  /* Secção Anexos — só para items sem página definida */
+  if(_mediaSemPag.length > 0){
     const mediaHtml = `<div style="padding:40px 60px">
       <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Anexos</div>
-      ${mediaItems.map((item,i) => htmlMediaItem(item, i+1)).join('<div style="margin:16px 0;border-top:.5pt solid #eee"></div>')}
+      ${_mediaSemPag.map((item,i) => htmlMediaItem(item, i+1)).join('<div style="margin:16px 0;border-top:.5pt solid #eee"></div>')}
     </div>`;
     paginas.push(renderPagina(mediaHtml, {num:paginas.length+1, total:totalPgs, titulo, watermark:wm}));
   }
@@ -8928,7 +8981,11 @@ function montarDocumentoPDF(secs,meta){
     paginas.push(renderPagina(html, {num:paginas.length+1, total:totalPgs, titulo, watermark:wm}));
   });
 
-  return{paginas,totalPgs};
+  /* v71: Contracapa — última página */
+  const contracapaHtml = htmlContracapa(meta);
+  paginas.push(renderPagina(contracapaHtml, {num:paginas.length+1, total:totalPgs+1, titulo, isCapa:true, watermark:false}));
+
+  return{paginas, totalPgs: paginas.length};
 }
 
 /* ════════════════════════════════════════════════
@@ -10884,9 +10941,13 @@ function _mediaAddImagem(input){
   Array.from(input.files).forEach(file=>{
     const reader=new FileReader();
     reader.onload=e=>{
-      const legenda=prompt('Legenda da imagem (ex: Figura 1 — Evolução do PIB):','Figura '+(E.cfg.mediaItems.filter(m=>m.tipo==='imagem').length+1));
-      E.cfg.mediaItems.push({tipo:'imagem',src:e.target.result,legenda:legenda||file.name,id:'img-'+Date.now()});
-      mostrarToast('✓ Imagem adicionada.');
+      const legenda=prompt('Legenda (ex: Figura 1 — Título):','Figura '+(E.cfg.mediaItems.filter(m=>m.tipo==='imagem').length+1));
+      const totalPags=E.cfg.pags||15;
+      const pagStr=prompt(`Em que página queres inserir esta imagem? (1-${totalPags})
+Dica: coloca após o parágrafo onde a mencions.`,'');
+      const pag=parseInt(pagStr)||null;
+      E.cfg.mediaItems.push({tipo:'imagem',src:e.target.result,legenda:legenda||file.name,id:'img-'+Date.now(),pag});
+      mostrarToast(pag?`✓ Imagem adicionada na página ${pag}.`:'✓ Imagem adicionada (sem página definida — vai para Anexos).');
       irPara('editor');
     };
     reader.readAsDataURL(file);
@@ -10918,6 +10979,10 @@ function _mediaAddGrafico(){
   const labels=prompt('Categorias (separadas por vírgula):','2020,2021,2022,2023');
   const valores=prompt('Valores (separados por vírgula):','10,25,40,55');
   if(!labels||!valores)return;
+  const totalPagsG=E.cfg.pags||15;
+  const pagGrafStr=prompt(`Em que página queres inserir este gráfico? (1-${totalPagsG})
+Dica: coloca após os dados que o fundamentam.`,'');
+  const pagGraf=parseInt(pagGrafStr)||null;
   E.cfg.mediaItems.push({
     tipo:'grafico',
     titulo,
@@ -10925,8 +10990,9 @@ function _mediaAddGrafico(){
     labels:labels.split(',').map(s=>s.trim()),
     valores:valores.split(',').map(s=>parseFloat(s.trim())||0),
     fonte:'Fonte: Elaboração própria.',
+    pag:pagGraf,
   });
-  mostrarToast('✓ Gráfico adicionado.');
+  mostrarToast(pagGraf?`✓ Gráfico adicionado na página ${pagGraf}.`:'✓ Gráfico adicionado (vai para Anexos).');
   irPara('editor');
 }
 

@@ -3830,15 +3830,26 @@ function _confirmarApagarDoc(id){
 
 /* ══ CONSTANTES ══ */
 const TIPOS=[
-  {id:'tfc', n:'Trabalho de Fim de Curso', s:'TFC',      i:'◉',c:'b'},
-  {id:'inv', n:'Trabalho Investigativo',   s:'T.INV',    i:'◈',c:'o'},
-  {id:'mono',n:'Monografia',               s:'MONO',     i:'▣',c:'b'},
-  {id:'rel', n:'Relatório',                s:'REL',      i:'⬡',c:'o'},
-  {id:'art', n:'Artigo Científico',        s:'ARTIGO',   i:'◎',c:'b'},
-  {id:'sem', n:'Seminário',                s:'SEM',      i:'◑',c:'o'},
-  {id:'pre', n:'Pré-Projecto',             s:'PRÉ-PROJ', i:'◇',c:'b'},
-  {id:'out', n:'Outro Trabalho',           s:'OUTRO',    i:'○',c:'o'},
+  /* id, nome, sigla, ícone, cor, capsMin, capsMax, pagsMin, pagsMax */
+  {id:'tfc',  n:'Trabalho de Fim de Curso', s:'TFC',      i:'◉',c:'b', capsMin:4, capsMax:6,  pagsMin:10,pagsMax:30 },
+  {id:'inv',  n:'Trabalho Investigativo',   s:'T.INV',    i:'◈',c:'o', capsMin:4, capsMax:6,  pagsMin:10,pagsMax:30 },
+  {id:'mono', n:'Monografia',               s:'MONO',     i:'▣',c:'b', capsMin:5, capsMax:9,  pagsMin:20,pagsMax:60 },
+  {id:'rel',  n:'Relatório',                s:'REL',      i:'⬡',c:'o', capsMin:4, capsMax:8,  pagsMin:15,pagsMax:50 },
+  {id:'art',  n:'Artigo Científico',        s:'ARTIGO',   i:'◎',c:'b', capsMin:3, capsMax:5,  pagsMin:6, pagsMax:20 },
+  {id:'sem',  n:'Seminário',                s:'SEM',      i:'◑',c:'o', capsMin:3, capsMax:5,  pagsMin:8, pagsMax:25 },
+  {id:'pre',  n:'Pré-Projecto',             s:'PRÉ-PROJ', i:'◇',c:'b', capsMin:4, capsMax:6,  pagsMin:10,pagsMax:25 },
+  {id:'diss', n:'Dissertação de Mestrado',  s:'DISS',     i:'◆',c:'b', capsMin:7, capsMax:12, pagsMin:40,pagsMax:100},
+  {id:'tese', n:'Tese de Doutoramento',     s:'TESE',     i:'★',c:'o', capsMin:9, capsMax:16, pagsMin:70,pagsMax:150},
+  {id:'out',  n:'Outro Trabalho',           s:'OUTRO',    i:'○',c:'o', capsMin:4, capsMax:12, pagsMin:10,pagsMax:100},
 ];
+
+/* v75: calcular número de capítulos ideal para as páginas pedidas */
+function calcularNumCaps(tipoId, totalPags){
+  const t = TIPOS.find(x=>x.id===tipoId) || TIPOS[TIPOS.length-1];
+  const PAGS_POR_CAP = 9; /* ~9 páginas por capítulo = óptimo */
+  const calc = Math.round(totalPags / PAGS_POR_CAP);
+  return Math.min(Math.max(calc, t.capsMin||4), t.capsMax||10);
+}
 
 const ESTRUTURAS_TIPO={
   tfc:{nome:'Trabalho de Fim de Curso',caps:[
@@ -4636,7 +4647,8 @@ function sGeracao(){
 
   /* Verificar se geração foi interrompida */
   const temProg=genTemProgresso();
-  const interrompida=!E.genFim&&pron>0&&pron<total&&!_genCancelado===false;
+  /* v76: fix da condição — mostrar banner se há progresso guardado e não concluído */
+  const interrompida = !!(temProg && !E.genFim && temProg.secs && temProg.secs.some(s=>s.e==='p'));
 
   const factos=[
     'Sabia que trabalhos com hipótese clara têm 40% mais probabilidade de aprovação?',
@@ -6601,7 +6613,12 @@ function novoDoc(){
   E.plano=null;E.est=null;E.secs=[];E.qual=null;E.genFim=false;
   irPara('tipo');
 }
-function selTipo(id){E.cfg.tipo=id;irPara('tema_');}
+function selTipo(id){
+  E.cfg.tipo=id;
+  /* v75: ajustar caps se pags já definidas */
+  if(E.cfg.pags) E.cfg.numCaps = calcularNumCaps(id, E.cfg.pags);
+  irPara('tema_');
+}
 function saveTema(){
   const t=document.getElementById('it')?.value?.trim();
   if(!t||t.length<10){
@@ -6617,8 +6634,21 @@ function saveTema(){
 function selNivel(n){E.cfg.nivel=n;irPara('nivel');}
 function selTurma(t){E.cfg.turma=t;irPara('nivel');}
 function saveDetalhes(){E.cfg.prof=document.getElementById('ip')?.value?.trim()||'';E.cfg.inst=document.getElementById('ii')?.value?.trim()||'';irPara('identidade');}
-function selPags(p){E.cfg.pags=p;irPara('nivel');}
-function selPagsCustom(p){if(p>=5&&p<=200)E.cfg.pags=p;}
+function selPags(p){
+  E.cfg.pags=p;
+  /* v75: recalcular capítulos automaticamente para as páginas escolhidas */
+  E.cfg.numCaps = calcularNumCaps(E.cfg.tipo||'tfc', p);
+  irPara('nivel');
+}
+function selPagsCustom(p){
+  const t = TIPOS.find(x=>x.id===E.cfg.tipo);
+  const pMax = t?.pagsMax || 150;
+  const pMin = t?.pagsMin || 5;
+  const pVal = Math.min(Math.max(parseInt(p)||10, pMin), pMax);
+  E.cfg.pags = pVal;
+  /* v75: recalcular caps automaticamente */
+  E.cfg.numCaps = calcularNumCaps(E.cfg.tipo||'tfc', pVal);
+}
 function selCaps(n){E.cfg.numCaps=n;irPara('nivel');}
 function selRef(r){E.cfg.refStyle=r;irPara('identidade');}
 function addMb(){
@@ -11898,9 +11928,9 @@ async function iniciarGer(retomar){
     if(i>iniciarEm)await new Promise(r=>setTimeout(r,_DELAY(i)));
     if(_genCancelado)break;
 
-    /* ── GERAÇÃO DO CAPÍTULO ───────────────────────────────────────
-       Lógica simples: tenta até 4 vezes, para quando tiver resultado.
-       Sem validações que possam descartar conteúdo válido.
+    /* ── GERAÇÃO DO CAPÍTULO v76 ──────────────────────────────────
+       Garantia de término: SEMPRE termina, nunca fica em 'g'.
+       Timeout de 120s + finally garante que resultado é definido.
     ─────────────────────────────────────────────────────────────── */
     const isRef = cap.titulo&&(cap.titulo.toLowerCase().includes('refer')||cap.titulo.toLowerCase().includes('bibliog'));
     const acaoGer = isRef ? 'gerar_capitulo_referencias' : 'gerar_capitulo';
@@ -11908,52 +11938,67 @@ async function iniciarGer(retomar){
     let resultado = null;
     let tentativas = 0;
 
-    while(!resultado && tentativas < 4 && !_genCancelado){
-      try{
-        const raw = await callAcademyAPI({
-          acao         : acaoGer,
-          tema         : E.cfg.tema,
-          tipoTrabalho : tp.n,
-          nivel        : E.cfg.nivel,
-          totalPags,
-          capNum       : cap.num,
-          capTitulo    : cap.titulo,
-          capSubs      : cap.subs||[],
-          totalCaps    : E.est.length,
-          palavrasPorCap: Math.max(200, pagsRef*220),
-          objetivo     : (E.plano?.objetivo||'').substring(0,120),
-          hipotese     : (E.plano?.hipotese||'').substring(0,100),
-          metodologia  : (E.plano?.metodologia||'').substring(0,100),
-          instrucaoSubtitulos: `Cada subtópico em capSubs DEVE aparecer como subtítulo numerado em linha própria.`,
-          instrucaoVariacao  : _INSTRUCAO_ANTI_IA(cap.num, cap.subs?.length||0),
-        });
+    /* Timeout de segurança — avança ao fim de 120s mesmo sem resultado */
+    let _capTimedOut = false;
+    const _capTimeout = setTimeout(()=>{
+      _capTimedOut = true;
+      console.warn(`[v76] Cap ${cap.num} timeout 120s — a avançar`);
+    }, 120000);
 
-        /* v72: raw pode ser { resposta, health, readiness } ou valor directo */
-        let _rawVal = raw;
-        if(raw && typeof raw === 'object' && 'resposta' in raw){
-          _rawVal         = raw.resposta;
-          E.secs[i].health      = raw.health       || null;
-          E.secs[i].readiness   = raw.readiness    || null;
-          E.secs[i].confidence  = raw.confidence   || null;
-          E.secs[i].completeness= raw.completeness || null;
-        }
-        if(_rawVal && (typeof _rawVal === 'object' || (typeof _rawVal === 'string' && _rawVal.length > 30))){
-          resultado = _rawVal;
-        } else {
+    try{
+      while(!resultado && tentativas < 4 && !_genCancelado && !_capTimedOut){
+        try{
+          const raw = await callAcademyAPI({
+            acao         : acaoGer,
+            tema         : E.cfg.tema,
+            tipoTrabalho : tp.n,
+            nivel        : E.cfg.nivel,
+            totalPags,
+            capNum       : cap.num,
+            capTitulo    : cap.titulo,
+            capSubs      : cap.subs||[],
+            totalCaps    : E.est.length,
+            palavrasPorCap: Math.max(200, pagsRef*220),
+            objetivo     : (E.plano?.objetivo||'').substring(0,120),
+            hipotese     : (E.plano?.hipotese||'').substring(0,100),
+            metodologia  : (E.plano?.metodologia||'').substring(0,100),
+            instrucaoSubtitulos: `Cada subtópico em capSubs DEVE aparecer como subtítulo numerado em linha própria.`,
+            instrucaoVariacao  : _INSTRUCAO_ANTI_IA(cap.num, cap.subs?.length||0),
+          });
+
+          let _rawVal = raw;
+          if(raw && typeof raw === 'object' && 'resposta' in raw){
+            _rawVal              = raw.resposta;
+            E.secs[i].health     = raw.health       || null;
+            E.secs[i].readiness  = raw.readiness    || null;
+            E.secs[i].confidence = raw.confidence   || null;
+            E.secs[i].completeness= raw.completeness|| null;
+          }
+          if(_rawVal && (typeof _rawVal === 'object' || (typeof _rawVal === 'string' && _rawVal.length > 30))){
+            resultado = _rawVal;
+          } else {
+            tentativas++;
+          }
+        }catch(er){
           tentativas++;
-        }
-      }catch(er){
-        tentativas++;
-        const isQ = er.message&&(er.message.includes('429')||er.message.includes('quota')||er.message.includes('rate')||er.message.includes('RESOURCE_EXHAUSTED'));
-        if(isQ && tentativas < 4){
-          const espera = tentativas * _RETRY_QUOTA;
-          aSecDOM(i,'g',`Aguarda ${Math.round(espera/1000)}s…`);
-          if(restEl) restEl.textContent='Limite da API — a aguardar…';
-          await new Promise(r=>setTimeout(r, espera));
+          const isQ = er.message&&(er.message.includes('429')||er.message.includes('quota')||er.message.includes('rate')||er.message.includes('RESOURCE_EXHAUSTED'));
+          if(isQ && tentativas < 4){
+            const espera = tentativas * _RETRY_QUOTA;
+            aSecDOM(i,'g',`Aguarda ${Math.round(espera/1000)}s…`);
+            if(restEl) restEl.textContent='Limite da API — a aguardar…';
+            await new Promise(r=>setTimeout(r, espera));
+          } else if(tentativas >= 4){
+            resultado = `[Cap. ${cap.num} não gerado. Toca em ↺ para regenerar.]`;
+          }
         }
       }
+    }finally{
+      clearTimeout(_capTimeout);
+      /* v76: GARANTIA — se resultado ainda null por qualquer razão, definir placeholder */
+      if(!resultado){
+        resultado = `[Cap. ${cap.num} não concluído. Toca em ↺ para regenerar.]`;
+      }
     }
-
     if(_genCancelado){ genGuardarProgresso(); break; }
 
     /* ── PROCESSAR RESULTADO ──────────────────────────────────────
@@ -13476,7 +13521,39 @@ function pwaHandleStartupAction() {
   const acao = params.get('acao');
   if (acao === 'criar') {
     setTimeout(() => { if (typeof nav === 'function') { E.ecra='mbs'; renderizar(); }}, 500);
+    return;
   }
+
+  /* v76: verificar progresso interrompido ao arrancar
+     Se havia uma geração em curso quando o app foi fechado,
+     voltar automaticamente ao ecrã de geração para retomar */
+  setTimeout(() => {
+    try{
+      const prog = genTemProgresso();
+      if(!prog || E.genFim) return;
+
+      const temConteudo = prog.secs && prog.secs.some(s=>s.e==='p');
+      if(!temConteudo) return;
+
+      const prontos = prog.secs.filter(s=>s.e==='p').length;
+      const total   = prog.secs.length;
+      if(prontos === 0 || prontos === total) return;
+
+      /* Restaurar estado */
+      if(prog.cfg){
+        E.cfg.tema  = prog.cfg.tema  || E.cfg.tema;
+        E.cfg.tipo  = prog.cfg.tipo  || E.cfg.tipo;
+        E.cfg.nivel = prog.cfg.nivel || E.cfg.nivel;
+        E.cfg.pags  = prog.cfg.pags  || E.cfg.pags;
+      }
+      if(prog.est) E.est = prog.est;
+      E.secs = prog.secs;
+
+      /* Ir para o ecrã de geração — o utilizador vê o progresso */
+      irPara('geracao');
+      mostrarToast(`↺ Geração retomada — ${prontos}/${total} capítulos prontos`);
+    }catch(e){ /* falha silenciosa — não interromper o arranque */ }
+  }, 1200); /* após o splash screen */
 }
 
 /* ════════════════════════════════════════

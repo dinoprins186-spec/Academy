@@ -209,6 +209,31 @@ const PERFIL_AREA = {
   },
 };
 
+/* ================================================================
+   CONFIGURAÇÃO POR TIPO DE TRABALHO — v75
+   Define estrutura, limites e expectativas por tipo académico.
+================================================================ */
+const TIPO_CONFIG = {
+  'tfc'        : { capsMin:4, capsMax:6,  pagsMin:10, pagsMax:25,  nivel:'ensino médio'  },
+  'monografia' : { capsMin:5, capsMax:8,  pagsMin:20, pagsMax:50,  nivel:'licenciatura'  },
+  'relatorio'  : { capsMin:4, capsMax:7,  pagsMin:15, pagsMax:40,  nivel:'licenciatura'  },
+  'dissertacao': { capsMin:7, capsMax:12, pagsMin:40, pagsMax:90,  nivel:'mestrado'      },
+  'tese'       : { capsMin:9, capsMax:16, pagsMin:70, pagsMax:150, nivel:'doutoramento'  },
+  'artigo'     : { capsMin:3, capsMax:5,  pagsMin:6,  pagsMax:18,  nivel:'licenciatura'  },
+  'plano'      : { capsMin:5, capsMax:9,  pagsMin:15, pagsMax:45,  nivel:'licenciatura'  },
+  'estagio'    : { capsMin:4, capsMax:7,  pagsMin:15, pagsMax:35,  nivel:'licenciatura'  },
+  'default'    : { capsMin:4, capsMax:10, pagsMin:10, pagsMax:100, nivel:'licenciatura'  },
+};
+
+/* Calcular número ideal de capítulos para um dado número de páginas */
+function calcularCapsIdeal(tipoId, totalPags) {
+  const cfg = TIPO_CONFIG[tipoId] || TIPO_CONFIG['default'];
+  /* ~8-10 páginas por capítulo é o óptimo para o modelo */
+  const PAGS_POR_CAP_IDEAL = 9;
+  const capsCalc = Math.round(totalPags / PAGS_POR_CAP_IDEAL);
+  return Math.min(Math.max(capsCalc, cfg.capsMin), cfg.capsMax);
+}
+
 /* ---------------- ABORDAGENS ESTRUTURAIS (rotação) ---------------- */
 const ABORDAGENS = [
   `Abordagem histórico-evolutiva: começa pela origem/evolução do conceito, analisa o estado actual em Angola com datas e factos concretos.`,
@@ -749,15 +774,19 @@ async function doCapitulo(p) {
   const _startTime = Date.now(); /* v73: para telemetria */
   let retryCount = 0;            /* v73: contar retries reais */
 
-  /* v71: Cálculo de palavras exacto
-     Páginas fixas: capa(1) + contracapa(1) + TOC(1) = 3
-     Deixa margem para pré/pós-textuais opcionais
-     Limite max aumentado para 4000 para documentos grandes */
-  const PAGINAS_FIXAS = 3; /* capa + TOC + contracapa */
+  /* v75: Cálculo de palavras com limite por capacidade do modelo
+     O modelo consegue gerar ~3000-4000 palavras de forma coesa.
+     Para documentos longos, dividir em mais capítulos (feito no frontend).
+     Aqui apenas garantir que cada capítulo tem o tamanho certo. */
+  const PAGINAS_FIXAS = 3;
   const PALAVRAS_POR_PAGINA = 370;
   const paginasConteudo = Math.max(totalPags - PAGINAS_FIXAS, 1);
   const palavrasCalc = Math.round((paginasConteudo * PALAVRAS_POR_PAGINA) / totalCaps);
-  const palavras = Math.min(Math.max(parseInt(p.palavrasPorCap)||palavrasCalc, 200), 4000);
+  /* v75: limite por nível — Doutoramento suporta mais densidade */
+  const PALAVRAS_MAX = nivelKey === 'doutoramento' ? 5000
+                     : nivelKey === 'mestrado'     ? 4500
+                     : 3500;
+  const palavras = Math.min(Math.max(parseInt(p.palavrasPorCap)||palavrasCalc, 200), PALAVRAS_MAX);
 
   /* Perfis v68: contexto geográfico dinâmico */
   const nivelKey  = detectarNivel(nivel);

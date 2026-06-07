@@ -3013,9 +3013,9 @@ async function sbSalvarDoc(doc){
         updated_at:new Date().toISOString()
       })
     });
-    /* Ignorar erros da tabela documentos — não bloquear exportação */
-    if(!r.ok) console.warn('[SB] documentos insert:', r.status);
-  }catch(e){console.warn('[SB] salvarDoc:',e);}
+    /* 400 = tabela não existe ou schema diferente — não bloquear geração */
+    if(!r.ok && r.status !== 400) console.warn('[SB] documentos:', r.status);
+  }catch(e){ /* falha silenciosa */ }
 }
 
 /* Apagar documento no Supabase */
@@ -3911,7 +3911,7 @@ function getEstruturaTipo(tipoId){
 const NIVEIS=['Ensino Médio','Ensino Secundário','Licenciatura','Pós-Graduação','Mestrado','Doutoramento','Outro'];
 const TURMAS=['10.ª Classe','11.ª Classe','12.ª Classe','13.ª Classe'];
 const ANOS_SUP=['1.º Ano','2.º Ano','3.º Ano','4.º Ano','5.º Ano'];
-const PAGS=[5,8,10,15,20,25,30,40,50,80,100];
+const PAGS=[10,15,20,25,30,40,50]; /* v77: máx 50 páginas nesta fase */
 
 const tipoActual=()=>TIPOS.find(t=>t.id===E.cfg.tipo);
 const nPags=()=>{if(!E.secs.length)return E.cfg.pags||15;return Math.max(1,Math.ceil(E.secs.reduce((s,x)=>s+(x.c?.split(' ').length||0),0)/250));};
@@ -4402,17 +4402,17 @@ function sNivel(){
   </div>
   <label class="lbl" style="margin-top:4px">Número de capítulos</label>
   <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-    ${[3,4,5,6,7,8,10].map(n=>`<div class="etq etq-b${(E.cfg.numCaps||5)===n?' ativo':''}" style="padding:9px 14px;font-size:13px;cursor:pointer;border-radius:22px;transition:all .14s" onclick="selCaps(${n})">${n}</div>`).join('')}
+    ${[4,5,6].map(n=>`<div class="etq etq-b${(E.cfg.numCaps||5)===n?' ativo':''}" style="padding:9px 14px;font-size:13px;cursor:pointer;border-radius:22px;transition:all .14s" onclick="selCaps(${n})">${n}</div>`).join('')}
   </div>
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px">
     <div style="font-family:var(--fm);font-size:9px;color:var(--t3);flex-shrink:0">Ou escreve:</div>
     <input type="number" class="inp" id="capsCustom" min="1" max="30"
       placeholder="Ex: 9"
-      value="${E.cfg.numCaps&&![3,4,5,6,7,8,10].includes(E.cfg.numCaps)?E.cfg.numCaps:''}"
+      value="${E.cfg.numCaps&&![4,5,6,7,8,10,12,14].includes(E.cfg.numCaps)?E.cfg.numCaps:''}"
       style="width:70px;text-align:center;font-size:15px;padding:9px"
       oninput="E._capsRaw=parseInt(this.value)||0"
-      onblur="if(E._capsRaw>=1&&E._capsRaw<=30){selCaps(E._capsRaw);}"
-      onkeydown="if(event.key==='Enter'){const v=parseInt(this.value);if(v>=1&&v<=30){selCaps(v);this.blur();}}"/>
+      onblur="if(E._capsRaw>=4&&E._capsRaw<=6){selCaps(E._capsRaw);}"
+      onkeydown="if(event.key==='Enter'){const v=parseInt(this.value);if(v>=4&&v<=6){selCaps(v);this.blur();}}"/>
     <div style="font-size:12px;color:var(--t3)">capítulos</div>
   </div>
   <button class="btn B w" onclick="irPara('identidade')" ${!E.cfg.nivel?'disabled':''}>Continuar →</button>
@@ -6602,20 +6602,17 @@ function selNivel(n){E.cfg.nivel=n;irPara('nivel');}
 function selTurma(t){E.cfg.turma=t;irPara('nivel');}
 function saveDetalhes(){E.cfg.prof=document.getElementById('ip')?.value?.trim()||'';E.cfg.inst=document.getElementById('ii')?.value?.trim()||'';irPara('identidade');}
 function selPags(p){
-  E.cfg.pags=p;
-  /* Calcular número de capítulos necessários: ~9-10 páginas por capítulo */
-  const capsNecessarios = Math.round(p / 9);
-  E.cfg.numCaps = Math.min(Math.max(capsNecessarios, 4), 14);
+  E.cfg.pags = Math.min(parseInt(p)||15, 50);
+  /* 50 págs / 9 págs por cap = ~6 caps */
+  E.cfg.numCaps = E.cfg.pags <= 20 ? 4 : E.cfg.pags <= 35 ? 5 : 6;
   irPara('nivel');
 }
 function selPagsCustom(p){
-  const val = Math.min(Math.max(parseInt(p)||10, 5), 150);
+  const val = Math.min(Math.max(parseInt(p)||10, 5), 50);
   E.cfg.pags = val;
-  /* Mesmo cálculo automático */
-  const capsNecessarios = Math.round(val / 9);
-  E.cfg.numCaps = Math.min(Math.max(capsNecessarios, 4), 14);
+  E.cfg.numCaps = val <= 20 ? 4 : val <= 35 ? 5 : 6;
 }
-function selCaps(n){E.cfg.numCaps=n;irPara('nivel');}
+function selCaps(n){E.cfg.numCaps=Math.min(Math.max(parseInt(n)||4,4),6);irPara('nivel');}
 function selRef(r){E.cfg.refStyle=r;irPara('identidade');}
 function addMb(){
   const inp=document.getElementById('im');const n=inp?.value?.trim();if(!n)return;
@@ -11924,6 +11921,22 @@ async function iniciarGer(retomar){
 
     genGuardarProgresso();
     autoGuardar();
+
+    /* ── SISTEMA DE BLOCOS v77 ─────────────────────────────────────
+       A cada 2 capítulos concluídos (~10 páginas), pausa 3s e mostra
+       progresso. Garante que o browser não cai em gerações longas.
+    ─────────────────────────────────────────────────────────────── */
+    const _capsConcluidos = E.secs.filter(s=>s.e==='p').length;
+    const _blocoTamanho = 2; /* 2 caps ≈ 10 páginas */
+    if(_capsConcluidos > 0 && _capsConcluidos % _blocoTamanho === 0 && i < E.est.length - 1){
+      const _paginasFeitas = Math.round(_capsConcluidos * (totalPags / E.est.length));
+      const _paginasTotal  = totalPags;
+      aSecDOM(i, 'p', `✓ PRONTO${_healthLabel}${_readyLabel}`, textoFinal);
+      mostrarToast(`✓ ${_paginasFeitas} páginas prontas — a continuar…`);
+      /* Pausa curta para o browser respirar e guardar estado */
+      await new Promise(r => setTimeout(r, 2000));
+      if(_genCancelado) break;
+    }
   }
 
   if(_genCancelado){

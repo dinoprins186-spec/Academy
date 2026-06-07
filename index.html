@@ -3830,26 +3830,15 @@ function _confirmarApagarDoc(id){
 
 /* ══ CONSTANTES ══ */
 const TIPOS=[
-  /* id, nome, sigla, ícone, cor, capsMin, capsMax, pagsMin, pagsMax */
-  {id:'tfc',  n:'Trabalho de Fim de Curso', s:'TFC',      i:'◉',c:'b', capsMin:4, capsMax:6,  pagsMin:10,pagsMax:30 },
-  {id:'inv',  n:'Trabalho Investigativo',   s:'T.INV',    i:'◈',c:'o', capsMin:4, capsMax:6,  pagsMin:10,pagsMax:30 },
-  {id:'mono', n:'Monografia',               s:'MONO',     i:'▣',c:'b', capsMin:5, capsMax:9,  pagsMin:20,pagsMax:60 },
-  {id:'rel',  n:'Relatório',                s:'REL',      i:'⬡',c:'o', capsMin:4, capsMax:8,  pagsMin:15,pagsMax:50 },
-  {id:'art',  n:'Artigo Científico',        s:'ARTIGO',   i:'◎',c:'b', capsMin:3, capsMax:5,  pagsMin:6, pagsMax:20 },
-  {id:'sem',  n:'Seminário',                s:'SEM',      i:'◑',c:'o', capsMin:3, capsMax:5,  pagsMin:8, pagsMax:25 },
-  {id:'pre',  n:'Pré-Projecto',             s:'PRÉ-PROJ', i:'◇',c:'b', capsMin:4, capsMax:6,  pagsMin:10,pagsMax:25 },
-  {id:'diss', n:'Dissertação de Mestrado',  s:'DISS',     i:'◆',c:'b', capsMin:7, capsMax:12, pagsMin:40,pagsMax:100},
-  {id:'tese', n:'Tese de Doutoramento',     s:'TESE',     i:'★',c:'o', capsMin:9, capsMax:16, pagsMin:70,pagsMax:150},
-  {id:'out',  n:'Outro Trabalho',           s:'OUTRO',    i:'○',c:'o', capsMin:4, capsMax:12, pagsMin:10,pagsMax:100},
+  {id:'tfc', n:'Trabalho de Fim de Curso', s:'TFC',      i:'◉',c:'b'},
+  {id:'inv', n:'Trabalho Investigativo',   s:'T.INV',    i:'◈',c:'o'},
+  {id:'mono',n:'Monografia',               s:'MONO',     i:'▣',c:'b'},
+  {id:'rel', n:'Relatório',                s:'REL',      i:'⬡',c:'o'},
+  {id:'art', n:'Artigo Científico',        s:'ARTIGO',   i:'◎',c:'b'},
+  {id:'sem', n:'Seminário',                s:'SEM',      i:'◑',c:'o'},
+  {id:'pre', n:'Pré-Projecto',             s:'PRÉ-PROJ', i:'◇',c:'b'},
+  {id:'out', n:'Outro Trabalho',           s:'OUTRO',    i:'○',c:'o'},
 ];
-
-/* v75: calcular número de capítulos ideal para as páginas pedidas */
-function calcularNumCaps(tipoId, totalPags){
-  const t = TIPOS.find(x=>x.id===tipoId) || TIPOS[TIPOS.length-1];
-  const PAGS_POR_CAP = 9; /* ~9 páginas por capítulo = óptimo */
-  const calc = Math.round(totalPags / PAGS_POR_CAP);
-  return Math.min(Math.max(calc, t.capsMin||4), t.capsMax||10);
-}
 
 const ESTRUTURAS_TIPO={
   tfc:{nome:'Trabalho de Fim de Curso',caps:[
@@ -3912,27 +3901,6 @@ const ESTRUTURAS_TIPO={
     {num:3,titulo:'Desenvolvimento',subs:['3.1 Análise','3.2 Discussão Crítica']},
     {num:4,titulo:'Conclusão',subs:['4.1 Síntese das Conclusões','4.2 Recomendações']},
     {num:5,titulo:'Referências Bibliográficas',subs:[]},
-  ]},
-  diss:{nome:'Dissertação de Mestrado',caps:[
-    {num:1,titulo:'Introdução',subs:['1.1 Enquadramento e Relevância','1.2 Problema de Investigação','1.3 Objectivos e Questões de Pesquisa','1.4 Hipóteses de Investigação','1.5 Estrutura da Dissertação']},
-    {num:2,titulo:'Revisão Sistemática da Literatura',subs:['2.1 Mapeamento do Estado da Arte','2.2 Principais Correntes Teóricas','2.3 Lacunas e Gaps Investigativos','2.4 Quadro Teórico e Conceptual']},
-    {num:3,titulo:'Enquadramento Teórico-Conceptual',subs:['3.1 Fundamentos Epistemológicos','3.2 Modelos e Frameworks Analíticos','3.3 Posicionamento Teórico do Investigador']},
-    {num:4,titulo:'Metodologia de Investigação',subs:['4.1 Paradigma e Abordagem','4.2 Estratégia de Investigação','4.3 Recolha e Análise de Dados','4.4 Validade, Fiabilidade e Ética']},
-    {num:5,titulo:'Análise e Apresentação dos Resultados',subs:['5.1 Caracterização da Amostra','5.2 Resultados Principais','5.3 Análise Estatística/Qualitativa','5.4 Verificação das Hipóteses']},
-    {num:6,titulo:'Discussão dos Resultados',subs:['6.1 Interpretação face à Literatura','6.2 Implicações Teóricas','6.3 Implicações Práticas','6.4 Limitações do Estudo']},
-    {num:7,titulo:'Conclusão',subs:['7.1 Síntese das Principais Conclusões','7.2 Contribuições Originais','7.3 Recomendações','7.4 Perspectivas de Investigação Futura']},
-    {num:8,titulo:'Referências Bibliográficas',subs:[]},
-  ]},
-  tese:{nome:'Tese de Doutoramento',caps:[
-    {num:1,titulo:'Introdução Geral',subs:['1.1 Contexto e Motivação','1.2 Problema e Gap Investigativo','1.3 Objectivos e Contribuições Originais','1.4 Estrutura da Tese']},
-    {num:2,titulo:'Revisão Exaustiva da Literatura',subs:['2.1 Mapeamento Sistemático do Campo','2.2 Escolas de Pensamento e Tensões Teóricas','2.3 Identificação de Lacunas','2.4 Posicionamento Epistemológico']},
-    {num:3,titulo:'Quadro Teórico Original',subs:['3.1 Construção do Framework Teórico','3.2 Proposições e Hipóteses Derivadas','3.3 Modelo Conceptual Proposto']},
-    {num:4,titulo:'Metodologia e Design da Investigação',subs:['4.1 Paradigma Ontológico e Epistemológico','4.2 Estratégia Metodológica','4.3 Métodos de Recolha de Dados','4.4 Análise e Interpretação','4.5 Rigor e Validade']},
-    {num:5,titulo:'Estudo Empírico — Fase 1',subs:['5.1 Contexto e Participantes','5.2 Instrumentos e Procedimentos','5.3 Resultados e Análise']},
-    {num:6,titulo:'Estudo Empírico — Fase 2',subs:['6.1 Aprofundamento Metodológico','6.2 Resultados Complementares','6.3 Síntese Integradora']},
-    {num:7,titulo:'Discussão Geral',subs:['7.1 Integração dos Resultados','7.2 Confronto com a Literatura','7.3 Validação do Modelo Proposto','7.4 Implicações Teóricas e Práticas']},
-    {num:8,titulo:'Conclusão Geral',subs:['8.1 Contribuições Originais para o Conhecimento','8.2 Limitações','8.3 Recomendações','8.4 Agenda de Investigação Futura']},
-    {num:9,titulo:'Referências Bibliográficas',subs:[]},
   ]},
 };
 
@@ -4668,8 +4636,7 @@ function sGeracao(){
 
   /* Verificar se geração foi interrompida */
   const temProg=genTemProgresso();
-  /* v76: fix da condição — mostrar banner se há progresso guardado e não concluído */
-  const interrompida = !!(temProg && !E.genFim && temProg.secs && temProg.secs.some(s=>s.e==='p'));
+  const interrompida=!E.genFim&&pron>0&&pron<total&&!_genCancelado===false;
 
   const factos=[
     'Sabia que trabalhos com hipótese clara têm 40% mais probabilidade de aprovação?',
@@ -5069,34 +5036,18 @@ function _calcularHealthGlobal(){
   /* ── Agregar issues com severidade ── */
   const todosIssues = [];
 
-  /* v74+v76: associar acções correctivas aos issues (conteúdo + layout) */
+  /* v74: associar acções correctivas aos issues */
   function _issueAction(code){
     const MAP = {
-      NO_REFERENCES      : {label:'Gerar referências',       acao:'gerar_capitulo_referencias', auto:true},
-      EMPTY_SECTIONS     : {label:'Regenerar capítulo',      acao:'regenerar_capitulo',         auto:false},
-      SHORT_PARAGRAPHS   : {label:'Enriquecer capítulo',     acao:'editar_texto',               auto:true},
-      AST_REPAIRED       : {label:'Regenerar capítulo',      acao:'regenerar_capitulo',         auto:false},
-      NO_CONCLUSION      : {label:'Gerar conclusão',         acao:'gerar_capitulo',             auto:false},
-      NO_INTRODUCTION    : {label:'Gerar introdução',        acao:'gerar_capitulo',             auto:false},
-      CAPITULO_SOZINHO   : {label:'Regenerar capítulo',      acao:'regenerar_capitulo',         auto:false},
-      SUBTITULO_ORFAO    : {label:'Regenerar capítulo',      acao:'regenerar_capitulo',         auto:false},
-      PAGINA_ESPARSA     : {label:'Enriquecer capítulo',     acao:'editar_texto',               auto:true},
-      SEM_HIERARQUIA     : {label:'Regenerar documento',     acao:'regenerar_capitulo',         auto:false},
+      NO_REFERENCES   : {label:'Gerar referências',    acao:'gerar_capitulo_referencias', auto:true},
+      EMPTY_SECTIONS  : {label:'Regenerar capítulo',   acao:'regenerar_capitulo',         auto:false},
+      SHORT_PARAGRAPHS: {label:'Enriquecer capítulo',  acao:'editar_texto',               auto:true},
+      AST_REPAIRED    : {label:'Regenerar capítulo',   acao:'regenerar_capitulo',         auto:false},
+      NO_CONCLUSION   : {label:'Gerar conclusão',      acao:'gerar_capitulo',             auto:false},
+      NO_INTRODUCTION : {label:'Gerar introdução',     acao:'gerar_capitulo',             auto:false},
     };
     return MAP[code]||null;
   }
-
-  /* v76: incluir erros de layout do preRenderStressValidate */
-  const layoutErros = (typeof E !== 'undefined' && E._layoutErros) || [];
-  layoutErros.forEach(err => {
-    todosIssues.push({
-      severity : err.severidade === 'CRITICO' ? 'blocker' : 'warning',
-      code     : err.tipo,
-      message  : err.msg,
-      cap      : err.pagina ? `Pág. ${err.pagina}` : null,
-      action   : _issueAction(err.tipo),
-    });
-  });
 
   /* Checks document-level */
   const isRef = cap => /refer[eê]ncias|bibliograf/i.test(cap.titulo||'');
@@ -6634,12 +6585,7 @@ function novoDoc(){
   E.plano=null;E.est=null;E.secs=[];E.qual=null;E.genFim=false;
   irPara('tipo');
 }
-function selTipo(id){
-  E.cfg.tipo=id;
-  /* v75: ajustar caps se pags já definidas */
-  if(E.cfg.pags) E.cfg.numCaps = calcularNumCaps(id, E.cfg.pags);
-  irPara('tema_');
-}
+function selTipo(id){E.cfg.tipo=id;irPara('tema_');}
 function saveTema(){
   const t=document.getElementById('it')?.value?.trim();
   if(!t||t.length<10){
@@ -6655,21 +6601,8 @@ function saveTema(){
 function selNivel(n){E.cfg.nivel=n;irPara('nivel');}
 function selTurma(t){E.cfg.turma=t;irPara('nivel');}
 function saveDetalhes(){E.cfg.prof=document.getElementById('ip')?.value?.trim()||'';E.cfg.inst=document.getElementById('ii')?.value?.trim()||'';irPara('identidade');}
-function selPags(p){
-  E.cfg.pags=p;
-  /* v75: recalcular capítulos automaticamente para as páginas escolhidas */
-  E.cfg.numCaps = calcularNumCaps(E.cfg.tipo||'tfc', p);
-  irPara('nivel');
-}
-function selPagsCustom(p){
-  const t = TIPOS.find(x=>x.id===E.cfg.tipo);
-  const pMax = t?.pagsMax || 150;
-  const pMin = t?.pagsMin || 5;
-  const pVal = Math.min(Math.max(parseInt(p)||10, pMin), pMax);
-  E.cfg.pags = pVal;
-  /* v75: recalcular caps automaticamente */
-  E.cfg.numCaps = calcularNumCaps(E.cfg.tipo||'tfc', pVal);
-}
+function selPags(p){E.cfg.pags=p;irPara('nivel');}
+function selPagsCustom(p){if(p>=5&&p<=200)E.cfg.pags=p;}
 function selCaps(n){E.cfg.numCaps=n;irPara('nivel');}
 function selRef(r){E.cfg.refStyle=r;irPara('identidade');}
 function addMb(){
@@ -8951,9 +8884,7 @@ function preRenderStressValidate(paginas, grupos) {
 function preRenderPipeline(blocos) {
   const grupos  = preRenderAgrupar(blocos);
   const paginas = preRenderConstraintEngine(grupos);
-  const errosLayout = preRenderStressValidate(paginas, grupos);
-  /* v76: guardar erros de layout para o painel de saúde */
-  if(typeof E !== 'undefined') E._layoutErros = errosLayout || [];
+  preRenderStressValidate(paginas, grupos);
   /* v70: filtrar páginas completamente vazias */
   return paginas.filter(pg =>
     pg && pg.length > 0 &&
@@ -9113,10 +9044,9 @@ function _truncarRunningHead(txt, maxChars) {
 }
 
 function layoutRenderPagina(blocosDaPagina, opts){
-  const{num,total,titulo,isCapa,isTOC,watermark,paginaRomana,semNumero,nomeCap:nomeCapOpts}=opts;
+  const{num,total,titulo,isCapa,isTOC,watermark}=opts;
   const exibirHeader=!isCapa&&!isTOC;
   const exibirFooter=!isCapa;
-  const numDisplay = semNumero ? '' : paginaRomana ? paginaRomana : String(num);
   /* v51: truncamento inteligente por palavras para ambos os campos */
   const tituloAbrev = _truncarRunningHead(titulo || 'ACADEMY', 40);
   /* Nome do capítulo actual para cabeçalho (1º título_cap da página ou o passado) */
@@ -9142,10 +9072,8 @@ function layoutRenderPagina(blocosDaPagina, opts){
   ${exibirFooter?`
   <div class="pag-footer-linha"></div>
   <div class="pag-footer">
-    ${semNumero ? '<span></span><span></span><span></span>'
-    : isTOC     ? `<span></span><span style="font-style:italic">— ${paginaRomana||'ii'} —</span><span></span>`
-    : paginaRomana ? `<span></span><span style="font-style:italic">— ${paginaRomana} —</span><span></span>`
-                 : `<span></span><span>— ${num} —</span><span></span>`}
+    ${isTOC?'<span>ÍNDICE</span><span style="font-style:normal">— ii —</span><span></span>'
+           :`<span></span><span>— ${num} —</span><span></span>`}
   </div>`:''}
 
 </div>`;
@@ -9153,7 +9081,7 @@ function layoutRenderPagina(blocosDaPagina, opts){
 
 /* Renderização especial para páginas com HTML directo (capa, TOC) */
 function renderPagina(conteudoHtml, opts){
-  const{num,total,titulo,cabecalho,isCapa,isTOC,watermark,paginaRomana,semNumero}=opts;
+  const{num,total,titulo,cabecalho,isCapa,isTOC,watermark}=opts;
   const exibirHeader=!isCapa&&!isTOC;
   const exibirFooter=!isCapa;
   /* v51: truncamento inteligente por palavras */
@@ -9173,10 +9101,8 @@ function renderPagina(conteudoHtml, opts){
   ${exibirFooter?`
   <div class="pag-footer-linha"></div>
   <div class="pag-footer">
-    ${semNumero ? '<span></span><span></span><span></span>'
-    : isTOC     ? `<span></span><span style="font-style:italic">— ${paginaRomana||'ii'} —</span><span></span>`
-    : paginaRomana ? `<span></span><span style="font-style:italic">— ${paginaRomana} —</span><span></span>`
-                 : `<span></span><span>— ${num} —</span><span></span>`}
+    ${isTOC?'<span>ÍNDICE</span><span style="font-style:normal">— ii —</span><span></span>'
+           :`<span></span><span>— ${num} —</span><span></span>`}
   </div>`:''}
 
 </div>`;
@@ -9334,116 +9260,95 @@ function montarDocumentoPDF(secs,meta){
   const data=new Date().toLocaleDateString('pt-PT',{year:'numeric',month:'long'});
   const metaC={...meta,data};
   const wm=!!meta.watermark;
-  const cfgDoc = meta.cfg || E.cfg || {};
 
-  /* Limpar cache */
+  /* Limpar cache entre gerações */
   _alturaCache.clear();
 
-  /* 1. Estruturar + paginar */
-  const blocos = docEstruturarSemantico(secs);
+  /* 1. Estruturar semanticamente */
+  const blocos=docEstruturarSemantico(secs);
+
+  /* 2. Distribuir por páginas — v64: Pre-Render Layout Layer
+     Strangler pattern: substitui layoutCalcularBlocos pelo pipeline
+     grupo semântico → constraints → páginas */
   const paginasDeBlocos = preRenderPipeline(blocos);
+
+  /* 2b. v48: Validar anomalias (não bloqueia — apenas loga) */
   layoutValidarDocumento(paginasDeBlocos, blocos);
 
-  /* 2. Filtrar páginas vazias */
+  /* 3. TOC REAL — páginas reais calculadas a partir da distribuição */
+  const mapaCapTOC=layoutGerarTOCReal(paginasDeBlocos);
+
+  const totalPgs=2+paginasDeBlocos.length;
+
+  /* 4. Renderizar todas as páginas */
+  const paginas=[];
+
+  /* Capa */
+  paginas.push(renderPagina(htmlCapa(metaC),{num:1,total:totalPgs,titulo,isCapa:true,watermark:wm}));
+
+  /* v68: Elementos pré-textuais (dedicatória, agradecimentos, epígrafe) */
+  const pretexts = htmlPretextuais(meta.cfg || E.cfg || {});
+  pretexts.forEach((html, pi) => {
+    paginas.push(renderPagina(html, {num:2+pi, total:totalPgs, titulo, isCapa:false, watermark:wm}));
+  });
+  const offsetTOC = 1 + pretexts.length; /* capa + pré-textuais */
+
+  /* TOC */
+  paginas.push(renderPagina(htmlTOC(mapaCapTOC),{num:1+offsetTOC,total:totalPgs,titulo,isTOC:true,watermark:wm}));
+
+  /* Conteúdo — v70: filtrar páginas vazias */
   const _pgsValidas = paginasDeBlocos.filter(pg =>
     pg && pg.some(b => ['titulo_cap','h2','h3','paragrafo','ref_item'].includes(b.tipo))
   );
-
-  /* 3. Calcular offset real
-     Estrutura: Capa(1) + PréTextuais(n) + TOC(1) + ListaFig(0/1) + ListaTab(0/1)
-     Depois: Conteúdo com numeração arábica a partir de 1 */
-  const pretexts = htmlPretextuais(cfgDoc);
-  const mediaItems75 = cfgDoc.mediaItems || [];
-  const { figuras: figList, tabelas: tabList } = extrairMediaParaListas(mediaItems75);
-  const nPretexts = pretexts.length;
-  const nListas   = (figList.length > 0 ? 1 : 0) + (tabList.length > 0 ? 1 : 0);
-  /* Número de páginas antes do conteúdo arábico */
-  const nPaginasRomanas = nPretexts + 1 + nListas; /* pré-textuais + TOC + listas */
-
-  /* 4. TOC com páginas reais (arábico, começa em 1) */
-  const mapaCapTOC = layoutGerarTOCReal(_pgsValidas, 1);
-
-  /* 5. Total real de páginas */
-  const nMediaSemPag = mediaItems75.filter(m=>!m.pag).length;
-  const nPostex = (cfgDoc.postextuais||[]).length > 0 ? 1 : 0;
-  const totalPgsReal = 1 + nPaginasRomanas + _pgsValidas.length + (nMediaSemPag>0?1:0) + nPostex + 1; /* +1 contracapa */
-
-  /* 6. Renderizar */
-  const paginas = [];
-
-  /* Capa — sem número */
-  paginas.push(renderPagina(htmlCapa(metaC), {num:1, total:totalPgsReal, titulo, isCapa:true, watermark:wm, semNumero:true}));
-
-  /* Pré-textuais — numeração romana */
-  pretexts.forEach((html, pi) => {
-    paginas.push(renderPagina(html, {
-      num:paginas.length+1, total:totalPgsReal, titulo,
-      paginaRomana: toRoman(pi+1), watermark:wm,
-    }));
-  });
-
-  /* TOC — numeração romana */
-  paginas.push(renderPagina(htmlTOC(mapaCapTOC), {
-    num:paginas.length+1, total:totalPgsReal, titulo, isTOC:true,
-    paginaRomana: toRoman(nPretexts+1), watermark:wm,
-  }));
-
-  /* Lista de Figuras (se existir) */
-  if(figList.length > 0){
-    paginas.push(renderPagina(
-      htmlListaFiguras(figList, 1),
-      {num:paginas.length+1, total:totalPgsReal, titulo, paginaRomana:toRoman(nPretexts+2), watermark:wm}
-    ));
-  }
-
-  /* Lista de Tabelas (se existir) */
-  if(tabList.length > 0){
-    paginas.push(renderPagina(
-      htmlListaTabelas(tabList, 1),
-      {num:paginas.length+1, total:totalPgsReal, titulo, paginaRomana:toRoman(nPretexts+2+(figList.length>0?1:0)), watermark:wm}
-    ));
-  }
-
-  /* Conteúdo — numeração arábica a partir de 1 */
   let nomeCap='';
-  for(let pi=0; pi<_pgsValidas.length; pi++){
-    const pg = _pgsValidas[pi];
-    const tc = pg.find(b=>b.tipo==='titulo_cap');
-    if(tc) nomeCap = tc.titulo;
-    paginas.push(layoutRenderPagina(pg, {
-      num: pi+1, /* arábico */
-      total: totalPgsReal, titulo,
-      nomeCap: tc?'':nomeCap, watermark:wm,
-    }));
+  for(let pi=0;pi<_pgsValidas.length;pi++){
+    const pg=_pgsValidas[pi];
+    const tc=pg.find(b=>b.tipo==='titulo_cap');
+    if(tc) nomeCap=tc.titulo;
+    const pgN=2+offsetTOC+pi;
+    paginas.push(layoutRenderPagina(pg,{num:pgN,total:totalPgs,titulo,nomeCap:tc?'':nomeCap,watermark:wm}));
   }
 
-  /* Media com página definida — injectar na página correcta */
-  const _mediaComPag = mediaItems75.filter(m=>m.pag);
-  _mediaComPag.forEach(item=>{
-    const pgIdx = 1 + nPaginasRomanas + Math.max(0,(item.pag||1)-1);
-    const pgAlvo = paginas[Math.min(pgIdx, paginas.length-1)];
-    if(pgAlvo) pgAlvo.innerHTML = (pgAlvo.innerHTML||'') + htmlMediaItem(item, _mediaComPag.indexOf(item)+1);
+  /* v71: Media por página específica
+     - Items com pag definida → inseridos na página correcta (após renderização)
+     - Items sem pag → vão para secção Anexos no final (só se existirem) */
+  const _allMedia = (meta.cfg || E.cfg || {}).mediaItems || [];
+  const _mediaSemPag = _allMedia.filter(m => !m.pag);
+
+  /* Inserir media com página definida directamente nas páginas de conteúdo */
+  const _mediaComPag = _allMedia.filter(m => m.pag);
+  _mediaComPag.forEach(item => {
+    /* Página 1=capa, 2=TOC → offset de conteúdo começa em 3 */
+    const pagIdx = Math.max(0, (item.pag || 3) - 3);
+    const pgAlvo = paginas[Math.min(pagIdx + 2 + pretexts.length, paginas.length - 1)];
+    /* Injectar HTML da imagem/gráfico no HTML da página alvo */
+    if(pgAlvo){
+      const mediaHtml = htmlMediaItem(item, _mediaComPag.indexOf(item)+1);
+      /* Adicionar após o último parágrafo da página */
+      pgAlvo.innerHTML = (pgAlvo.innerHTML||'') + mediaHtml;
+    }
   });
 
-  /* Media sem página → Anexos */
-  const _mediaSemPag = mediaItems75.filter(m=>!m.pag);
+  /* Secção Anexos — só para items sem página definida */
   if(_mediaSemPag.length > 0){
     const mediaHtml = `<div style="padding:40px 60px">
       <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Anexos</div>
-      ${_mediaSemPag.map((item,i)=>htmlMediaItem(item,i+1)).join('<div style="margin:16px 0;border-top:.5pt solid #eee"></div>')}
+      ${_mediaSemPag.map((item,i) => htmlMediaItem(item, i+1)).join('<div style="margin:16px 0;border-top:.5pt solid #eee"></div>')}
     </div>`;
-    paginas.push(renderPagina(mediaHtml, {num:paginas.length+1, total:totalPgsReal, titulo, watermark:wm}));
+    paginas.push(renderPagina(mediaHtml, {num:paginas.length+1, total:totalPgs, titulo, watermark:wm}));
   }
 
-  /* Pós-textuais */
-  htmlPostextuais(cfgDoc).forEach(html=>{
-    paginas.push(renderPagina(html, {num:paginas.length+1, total:totalPgsReal, titulo, watermark:wm}));
+  /* v69: Pós-textuais (glossário, abreviaturas, apêndices, anexos) */
+  const posTexPages = htmlPostextuais(meta.cfg || E.cfg || {});
+  posTexPages.forEach(html => {
+    paginas.push(renderPagina(html, {num:paginas.length+1, total:totalPgs, titulo, watermark:wm}));
   });
 
-  /* Contracapa */
-  paginas.push(renderPagina(htmlContracapa(meta), {num:paginas.length+1, total:totalPgsReal, titulo, isCapa:true, watermark:false, semNumero:true}));
+  /* v71: Contracapa — última página */
+  const contracapaHtml = htmlContracapa(meta);
+  paginas.push(renderPagina(contracapaHtml, {num:paginas.length+1, total:totalPgs+1, titulo, isCapa:true, watermark:false}));
 
-  return {paginas, totalPgs: paginas.length};
+  return{paginas, totalPgs: paginas.length};
 }
 
 /* ════════════════════════════════════════════════
@@ -9452,78 +9357,21 @@ function montarDocumentoPDF(secs,meta){
    a página real de cada título de capítulo.
    Retorna array: [{num, titulo, pgInicio}]
 ════════════════════════════════════════════════ */
-function layoutGerarTOCReal(paginasDeBlocos, offsetInicio){
-  /* offsetInicio: capa(1) + pré-textuais + TOC(1) + listas(n) */
-  const offset = offsetInicio || 3;
+function layoutGerarTOCReal(paginasDeBlocos){
   const mapa=[];
   for(let pi=0;pi<paginasDeBlocos.length;pi++){
     const pg=paginasDeBlocos[pi];
     const tc=pg.find(b=>b.tipo==='titulo_cap');
     if(tc){
       mapa.push({
-        num     : tc.num,
-        titulo  : tc.titulo,
-        pgInicio: offset + pi, /* offset real calculado por montarDocumentoPDF */
-        isRef   : tc.isRef||false,
+        num: tc.num,
+        titulo: tc.titulo,
+        pgInicio: 3 + pi, /* capa=1, TOC=2, conteúdo=3+ */
+        isRef: tc.isRef||false,
       });
     }
   }
   return mapa;
-}
-
-/* Converte número para numeral romano */
-function toRoman(n){
-  if(!n||n<=0) return '';
-  const vals=[1000,900,500,400,100,90,50,40,10,9,5,4,1];
-  const syms=['M','CM','D','CD','C','XC','L','XL','X','IX','V','IV','I'];
-  let result='';
-  for(let i=0;i<vals.length;i++){
-    while(n>=vals[i]){result+=syms[i];n-=vals[i];}
-  }
-  return result.toLowerCase(); /* i, ii, iii, iv... */
-}
-
-/* Extrair tabelas e figuras do AST para gerar listas automáticas */
-function extrairMediaParaListas(cfgMedia){
-  const figuras  = (cfgMedia||[]).filter(m=>m.tipo==='imagem'||m.tipo==='grafico');
-  const tabelas  = (cfgMedia||[]).filter(m=>m.tipo==='tabela');
-  return { figuras, tabelas };
-}
-
-/* Gerar HTML da Lista de Figuras */
-function htmlListaFiguras(figuras, offsetPags){
-  if(!figuras||!figuras.length) return null;
-  const items = figuras.map((f,i)=>{
-    const pag = f.pag || (offsetPags + i + 2);
-    const pontos = '·'.repeat(Math.max(2, 52-(f.legenda||'').length));
-    return `<div class="toc-item">
-      <div class="toc-item-titulo">Figura ${i+1} — ${f.legenda||f.titulo||'Sem título'}</div>
-      <div class="toc-pontos">${pontos}</div>
-      <div class="toc-pg">${pag}</div>
-    </div>`;
-  }).join('');
-  return `<div style="padding:40px 60px">
-    <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Lista de Figuras</div>
-    <div class="toc-lista">${items}</div>
-  </div>`;
-}
-
-/* Gerar HTML da Lista de Tabelas */
-function htmlListaTabelas(tabelas, offsetPags){
-  if(!tabelas||!tabelas.length) return null;
-  const items = tabelas.map((t,i)=>{
-    const pag = t.pag || (offsetPags + i + 2);
-    const pontos = '·'.repeat(Math.max(2, 52-(t.titulo||'').length));
-    return `<div class="toc-item">
-      <div class="toc-item-titulo">Tabela ${i+1} — ${t.titulo||'Sem título'}</div>
-      <div class="toc-pontos">${pontos}</div>
-      <div class="toc-pg">${pag}</div>
-    </div>`;
-  }).join('');
-  return `<div style="padding:40px 60px">
-    <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:.1em;margin-bottom:24px;border-bottom:1pt solid #333;padding-bottom:8px">Lista de Tabelas</div>
-    <div class="toc-lista">${items}</div>
-  </div>`;
 }
 
 /* ════════════════════════════════════════════════
@@ -11949,77 +11797,69 @@ async function iniciarGer(retomar){
     if(i>iniciarEm)await new Promise(r=>setTimeout(r,_DELAY(i)));
     if(_genCancelado)break;
 
-    /* ── GERAÇÃO DO CAPÍTULO v76 ──────────────────────────────────
-       Garantia de término: SEMPRE termina, nunca fica em 'g'.
-       Timeout de 120s + finally garante que resultado é definido.
+    /* ── GERAÇÃO DO CAPÍTULO ───────────────────────────────────────
+       Lógica simples: tenta até 4 vezes, para quando tiver resultado.
+       Sem validações que possam descartar conteúdo válido.
     ─────────────────────────────────────────────────────────────── */
     const isRef = cap.titulo&&(cap.titulo.toLowerCase().includes('refer')||cap.titulo.toLowerCase().includes('bibliog'));
     const acaoGer = isRef ? 'gerar_capitulo_referencias' : 'gerar_capitulo';
 
     let resultado = null;
     let tentativas = 0;
-
-    /* Timeout de segurança — avança ao fim de 120s mesmo sem resultado */
     let _capTimedOut = false;
-    const _capTimeout = setTimeout(()=>{
-      _capTimedOut = true;
-      console.warn(`[v76] Cap ${cap.num} timeout 120s — a avançar`);
-    }, 120000);
+    const _capTimeout = setTimeout(()=>{ _capTimedOut=true; }, 120000);
 
     try{
-      while(!resultado && tentativas < 4 && !_genCancelado && !_capTimedOut){
-        try{
-          const raw = await callAcademyAPI({
-            acao         : acaoGer,
-            tema         : E.cfg.tema,
-            tipoTrabalho : tp.n,
-            nivel        : E.cfg.nivel,
-            totalPags,
-            capNum       : cap.num,
-            capTitulo    : cap.titulo,
-            capSubs      : cap.subs||[],
-            totalCaps    : E.est.length,
-            palavrasPorCap: Math.max(200, pagsRef*220),
-            objetivo     : (E.plano?.objetivo||'').substring(0,120),
-            hipotese     : (E.plano?.hipotese||'').substring(0,100),
-            metodologia  : (E.plano?.metodologia||'').substring(0,100),
-            instrucaoSubtitulos: `Cada subtópico em capSubs DEVE aparecer como subtítulo numerado em linha própria.`,
-            instrucaoVariacao  : _INSTRUCAO_ANTI_IA(cap.num, cap.subs?.length||0),
-          });
+    while(!resultado && tentativas < 4 && !_genCancelado && !_capTimedOut){
+      try{
+        const raw = await callAcademyAPI({
+          acao         : acaoGer,
+          tema         : E.cfg.tema,
+          tipoTrabalho : tp.n,
+          nivel        : E.cfg.nivel,
+          totalPags,
+          capNum       : cap.num,
+          capTitulo    : cap.titulo,
+          capSubs      : cap.subs||[],
+          totalCaps    : E.est.length,
+          palavrasPorCap: Math.max(200, pagsRef*220),
+          objetivo     : (E.plano?.objetivo||'').substring(0,120),
+          hipotese     : (E.plano?.hipotese||'').substring(0,100),
+          metodologia  : (E.plano?.metodologia||'').substring(0,100),
+          instrucaoSubtitulos: `Cada subtópico em capSubs DEVE aparecer como subtítulo numerado em linha própria.`,
+          instrucaoVariacao  : _INSTRUCAO_ANTI_IA(cap.num, cap.subs?.length||0),
+        });
 
-          let _rawVal = raw;
-          if(raw && typeof raw === 'object' && 'resposta' in raw){
-            _rawVal              = raw.resposta;
-            E.secs[i].health     = raw.health       || null;
-            E.secs[i].readiness  = raw.readiness    || null;
-            E.secs[i].confidence = raw.confidence   || null;
-            E.secs[i].completeness= raw.completeness|| null;
-          }
-          if(_rawVal && (typeof _rawVal === 'object' || (typeof _rawVal === 'string' && _rawVal.length > 30))){
-            resultado = _rawVal;
-          } else {
-            tentativas++;
-          }
-        }catch(er){
+        /* v72: raw pode ser { resposta, health, readiness } ou valor directo */
+        let _rawVal = raw;
+        if(raw && typeof raw === 'object' && 'resposta' in raw){
+          _rawVal         = raw.resposta;
+          E.secs[i].health      = raw.health       || null;
+          E.secs[i].readiness   = raw.readiness    || null;
+          E.secs[i].confidence  = raw.confidence   || null;
+          E.secs[i].completeness= raw.completeness || null;
+        }
+        if(_rawVal && (typeof _rawVal === 'object' || (typeof _rawVal === 'string' && _rawVal.length > 30))){
+          resultado = _rawVal;
+        } else {
           tentativas++;
-          const isQ = er.message&&(er.message.includes('429')||er.message.includes('quota')||er.message.includes('rate')||er.message.includes('RESOURCE_EXHAUSTED'));
-          if(isQ && tentativas < 4){
-            const espera = tentativas * _RETRY_QUOTA;
-            aSecDOM(i,'g',`Aguarda ${Math.round(espera/1000)}s…`);
-            if(restEl) restEl.textContent='Limite da API — a aguardar…';
-            await new Promise(r=>setTimeout(r, espera));
-          } else if(tentativas >= 4){
-            resultado = `[Cap. ${cap.num} não gerado. Toca em ↺ para regenerar.]`;
-          }
+        }
+      }catch(er){
+        tentativas++;
+        const isQ = er.message&&(er.message.includes('429')||er.message.includes('quota')||er.message.includes('rate')||er.message.includes('RESOURCE_EXHAUSTED'));
+        if(isQ && tentativas < 4){
+          const espera = tentativas * _RETRY_QUOTA;
+          aSecDOM(i,'g',`Aguarda ${Math.round(espera/1000)}s…`);
+          if(restEl) restEl.textContent='Limite da API — a aguardar…';
+          await new Promise(r=>setTimeout(r, espera));
         }
       }
+    }
     }finally{
       clearTimeout(_capTimeout);
-      /* v76: GARANTIA — se resultado ainda null por qualquer razão, definir placeholder */
-      if(!resultado){
-        resultado = `[Cap. ${cap.num} não concluído. Toca em ↺ para regenerar.]`;
-      }
+      if(!resultado) resultado = `[Cap. ${cap.num} não concluído. Toca em ↺.]`;
     }
+
     if(_genCancelado){ genGuardarProgresso(); break; }
 
     /* ── PROCESSAR RESULTADO ──────────────────────────────────────
@@ -12095,11 +11935,20 @@ async function iniciarGer(retomar){
   E.genFim=true;
   addDoc({tipo:tp.s||tp.n,tema:E.cfg.tema,pags:nPags(),qual:E.qual?.total});
   autoGuardar();
-  /* v72: calcular Document Health global */
+  /* v72: calcular Document Health global após geração completa */
   _calcularHealthGlobal();
   gerarGraficos();
-  /* v76: re-renderizar ecrã para mostrar botão "Ver Trabalho" */
-  irPara('geracao');
+
+  const ls=document.getElementById('ls');
+  if(ls){
+    const d=document.createElement('div');
+    d.style.cssText='margin-top:24px;text-align:center;padding:20px;background:rgba(67,232,167,.06);border:1px solid var(--eb);border-radius:8px;animation:entrar .4s cubic-bezier(.16,1,.3,1) both';
+    d.innerHTML=`<div style="font-size:32px;margin-bottom:8px">🎓</div>
+    <div style="font-size:18px;font-weight:700;color:var(--t1);margin-bottom:4px">Trabalho concluído!</div>
+    <div style="font-family:var(--fm);font-size:9px;color:var(--b);letter-spacing:.08em;margin-bottom:16px">${nPags()} PÁGINAS · ${E.qual?.total||85}% QUALIDADE</div>
+    <button class="btn B w" onclick="docConcluido()">Ver Documento Completo →</button>`;
+    ls.after(d);
+  }
 }
 
 function aSecDOM(i,e,etq,c){
@@ -13542,39 +13391,7 @@ function pwaHandleStartupAction() {
   const acao = params.get('acao');
   if (acao === 'criar') {
     setTimeout(() => { if (typeof nav === 'function') { E.ecra='mbs'; renderizar(); }}, 500);
-    return;
   }
-
-  /* v76: verificar progresso interrompido ao arrancar
-     Se havia uma geração em curso quando o app foi fechado,
-     voltar automaticamente ao ecrã de geração para retomar */
-  setTimeout(() => {
-    try{
-      const prog = genTemProgresso();
-      if(!prog || E.genFim) return;
-
-      const temConteudo = prog.secs && prog.secs.some(s=>s.e==='p');
-      if(!temConteudo) return;
-
-      const prontos = prog.secs.filter(s=>s.e==='p').length;
-      const total   = prog.secs.length;
-      if(prontos === 0 || prontos === total) return;
-
-      /* Restaurar estado */
-      if(prog.cfg){
-        E.cfg.tema  = prog.cfg.tema  || E.cfg.tema;
-        E.cfg.tipo  = prog.cfg.tipo  || E.cfg.tipo;
-        E.cfg.nivel = prog.cfg.nivel || E.cfg.nivel;
-        E.cfg.pags  = prog.cfg.pags  || E.cfg.pags;
-      }
-      if(prog.est) E.est = prog.est;
-      E.secs = prog.secs;
-
-      /* Ir para o ecrã de geração — o utilizador vê o progresso */
-      irPara('geracao');
-      mostrarToast(`↺ Geração retomada — ${prontos}/${total} capítulos prontos`);
-    }catch(e){ /* falha silenciosa — não interromper o arranque */ }
-  }, 1200); /* após o splash screen */
 }
 
 /* ════════════════════════════════════════

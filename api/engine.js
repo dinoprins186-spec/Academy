@@ -5,7 +5,7 @@
    - Perfis por nível: Ensino Médio / Licenciatura / Mestrado / Doutoramento
    - Perfis por área: Ciências / Humanidades / Gestão / Direito / Saúde / Engenharia
    - Citações autor-ano obrigatórias no corpo do texto
-   - Angola específico com factos, anos, instituições reais
+  - Dados verificáveis com fontes e anos
    - Variação estrutural entre subtópicos (5 abordagens rotativas)
    - Bugs corrigidos: ping, verificar_coerencia, gerar_mea
 ======================================================================= */
@@ -42,17 +42,17 @@ function setCORS(res) {
 /* v67: pools expandidos — 20+ variantes por categoria
    Elimina repetições mecânicas detectadas na avaliação de qualidade */
 const EXEMPLOS = [
-  'A experiência angolana demonstra que',
-  'No contexto específico de Angola,',
+  'A investigação académica demonstra que',
+  'No contexto em análise,',
   'Num cenário concreto verificável,',
   'Os dados de campo indicam que',
-  'A realidade angolana revela que',
+  'A evidência empírica revela que',
   'Tomando como caso ilustrativo',
   'A evidência empírica mostra que',
   'Num contexto prático verificável,',
-  'A análise do caso angolano revela',
+  'A análise do caso em estudo revela',
   'Os indicadores disponíveis mostram que',
-  'A situação em Angola ilustra bem',
+  'O tema em análise ilustra bem',
   'Verificando os dados disponíveis,',
 ];
 const HIPOTESES = [
@@ -155,43 +155,43 @@ const PERFIL_AREA = {
     instrucoes: `ÁREA Ciências (Física, Química, Biologia, Matemática, Geologia):
 - OBRIGATÓRIO para subtópicos quantitativos: fórmulas com notação correcta e variáveis explicadas
 - Unidades de medida SI sempre que relevante
-- Pelo menos 1 fenómeno observável em Angola (flora, fauna, geologia, clima angolano)
+  - Fenómenos observáveis relevantes ao tema
 - Referências: Nature, Science, African Journal of Science
 - PROIBIDO: referências de ciências sociais ou gestão sem nexo científico`,
   },
   humanidades: {
     label: 'Humanidades e Ciências Sociais',
     instrucoes: `ÁREA Humanidades (História, Filosofia, Literatura, Sociologia, Comunicação):
-- Perspectiva histórica com datas e actores angolanos concretos
-- Factos de Angola com anos: independência (1975), guerra civil (1975-2002), paz (2002)
-- Teorias sociais (Bourdieu, Foucault, Gramsci) aplicadas ao contexto angolano
+  - Perspectiva histórica com datas e actores concretos do contexto
+  - Factos históricos verificáveis com anos e fontes
+  - Teorias sociais aplicadas ao contexto do tema
 - Referências: revistas de ciências sociais, história africana, estudos lusófonos
 - PROIBIDO: referências de engenharia ou saúde clínica`,
   },
   gestao: {
     label: 'Gestão e Economia',
     instrucoes: `ÁREA Gestão, Economia, Administração, Finanças, Marketing:
-- Indicadores económicos angolanos com anos: PIB, inflação, desemprego (BNA, INE)
-- Exemplo obrigatório: "Em 2023, Angola registou inflação de ~13,6% (BNA, 2023)"
+  - Indicadores económicos verificáveis com anos e fontes
+  - Dados quantitativos com fontes e anos verificáveis
 - Modelos de gestão: SWOT, Porter, Balanced Scorecard quando pertinente
-- Empresas/sectores angolanos reais: SONANGOL, BNA, Unitel, CLARO, sector bancário
-- Referências: Journal of African Business, publicações BNA/INE Angola
+  - Exemplos de empresas e sectores relevantes ao tema
+  - Referências de revistas académicas reconhecidas na área
 - PROIBIDO: referências de saúde, ciências naturais ou direito sem nexo`,
   },
   direito: {
     label: 'Direito e Ciências Jurídicas',
     instrucoes: `ÁREA Direito (Constitucional, Penal, Civil, Comercial, Administrativo):
-- OBRIGATÓRIO: citar artigos de lei angolana com número e ano
-- Exemplo: "O artigo 30.º da Constituição da República de Angola (2010) consagra..."
-- Legislação angolana: Código Civil, Código Penal (2021), Lei das Sociedades Comerciais
-- Jurisprudência do Tribunal Supremo de Angola quando aplicável
-- Referências: revistas jurídicas lusófonas, publicações MINJUSDH, legislação angolana
+  - Citar artigos de lei relevantes com número e ano
+  - Ex: citar legislação relevante ao tema com artigo e ano
+  - Legislação relevante ao tema
+  - Jurisprudência aplicável ao tema
+  - Referências jurídicas académicas reconhecidas
 - PROIBIDO: referências de gestão, saúde ou engenharia sem nexo jurídico`,
   },
   saude: {
     label: 'Saúde e Ciências da Vida',
     instrucoes: `ÁREA Saúde (Medicina, Enfermagem, Farmácia, Saúde Pública, Nutrição):
-- Doenças prevalentes em Angola: paludismo, tuberculose, VIH/SIDA, cólera
+- Dados epidemiológicos relevantes ao tema com fontes (OMS, estudos peer-reviewed)
 - Dados MINSA/OMS com anos e províncias: "Segundo MINSA (2022), a mortalidade infantil..."
 - Protocolos clínicos ou guidelines OMS quando pertinente
 - Nomenclatura médica correcta com equivalente comum na primeira ocorrência
@@ -202,20 +202,20 @@ const PERFIL_AREA = {
     label: 'Engenharia e Tecnologia',
     instrucoes: `ÁREA Engenharia (Civil, Informática, Eléctrica, Mecânica, Petrolífera, TIC):
 - OBRIGATÓRIO: especificações numéricas, normas técnicas (ISO, IEEE), unidades
-- Infra-estruturas angolanas reais: Barragem de Laúca (2,07 GW), Porto de Luanda, UNITEL, CLARO
-- Sector petrolífero: Bloco 0, Bloco 17, SONANGOL EP quando pertinente
-- Referências: IEEE, ASME, revistas de engenharia africana, IRSE/Miniplan Angola
+  - Dados técnicos e infra-estruturas relevantes ao tema
+  - Exemplos de empresas e sectores relevantes ao tema
+  - IEEE, ASME, revistas de engenharia internacionais reconhecidas
 - PROIBIDO: referências de humanidades ou direito sem nexo tecnológico`,
   },
 };
 
 /* ---------------- ABORDAGENS ESTRUTURAIS (rotação) ---------------- */
 const ABORDAGENS = [
-  `Abordagem histórico-evolutiva: começa pela origem/evolução do conceito, analisa o estado actual em Angola com datas e factos concretos.`,
+  `Abordagem histórico-evolutiva: começa pela origem/evolução do conceito, analisa o estado actual com datas e factos concretos do contexto do tema.`,
   `Abordagem analítico-crítica: apresenta o conceito, confronta perspectivas divergentes de 2+ autores, conclui com posição fundamentada.`,
-  `Abordagem empírico-descritiva: apresenta dados quantitativos angolanos verificáveis (percentagens, anos, instituições), interpreta as implicações.`,
-  `Abordagem comparativa: compara a realidade angolana com outros contextos africanos, identifica semelhanças e especificidades locais.`,
-  `Abordagem prospectiva: analisa o estado actual, identifica desafios estruturais, propõe recomendações concretas para Angola.`,
+  `Abordagem empírico-descritiva: apresenta dados quantitativos verificáveis (percentagens, anos, instituições), interpreta as implicações.`,
+  `Abordagem comparativa: compara o contexto do tema com outros contextos relevantes, identifica semelhanças e especificidades locais.`,
+  `Abordagem prospectiva: analisa o estado actual, identifica desafios estruturais, propõe recomendações concretas.`,
 ];
 
 /* ---------------- DETECÇÃO AUTOMÁTICA ---------------- */
@@ -728,7 +728,7 @@ async function doChat(p) {
   const hist = (Array.isArray(p.historico)?p.historico:[]).slice(-8)
     .map(m => ({ role:m.role==='assistant'?'assistant':'user', content:String(m.content||'').substring(0,800) }));
   return { resposta: await callAI([
-    { role:'system', content:`Assistente académico ACADEMY. Português Angola, formal. Contexto: "${p.tema||''}" (${p.tipoTrabalho||''}). Máx 200 palavras.` },
+    { role:'system', content:`Assistente académico ACADEMY. Português formal. Contexto: "${p.tema||''}" (${p.tipoTrabalho||''}). Máx 200 palavras.` },
     ...hist,
     { role:'user', content:pedido },
   ], { max_tokens:800 }) };
@@ -783,24 +783,24 @@ async function doCapitulo(p) {
   /* v68: instrução geográfica dinâmica */
   let geoInstrucao;
   if(isAngola){
-    geoInstrucao = 'Angola é o contexto central. Especifica sempre: "Luanda (2021)", "MINSA (2022)", "INE (2023)". Pelo menos 1 dado angolano verificável por subtópico.';
+    /* Tema menciona Angola explicitamente */
+    geoInstrucao = 'O tema refere-se especificamente a Angola. Quando relevante, usa dados angolanos com fonte e ano.';
   } else if(isCabVerde){
-    geoInstrucao = 'Cabo Verde é o contexto central. Usa referências cabo-verdianas: INE Cabo Verde, BCV, dados das ilhas. Especifica sempre o ano.';
-  } else if(isGlobal){
-    geoInstrucao = 'O tema é global. Usa referências internacionais da área. NÃO forces Angola, Brasil ou qualquer país específico. Adapta os exemplos ao tema de forma universal.';
+    geoInstrucao = 'O tema refere-se a Cabo Verde. Usa referências cabo-verdianas quando relevante.';
   } else {
-    geoInstrucao = `O contexto geográfico é "${geoCtx}". Usa referências e exemplos desse contexto. Especifica sempre o país, a instituição e o ano nos dados citados.`;
+    /* PADRÃO UNIVERSAL — não forçar nenhum país */
+    geoInstrucao = 'Trata o tema de forma universal e académica. NÃO faças referência a Angola, Brasil, Portugal ou qualquer país específico a não ser que o tema o exija explicitamente. Usa fontes académicas internacionais.';
   }
 
-  const abordagemAnalitica = [
-    `Abordagem histórico-crítica: traça a evolução do conceito com datas angolanas concretas, questiona a narrativa dominante, propõe leitura alternativa fundamentada.`,
-    `Abordagem teórico-comparativa: confronta pelo menos 2 perspectivas teóricas divergentes, posiciona o argumento, aplica ao contexto angolano com dados específicos.`,
-    `Abordagem empírico-analítica: parte de dados quantitativos angolanos verificáveis, analisa causas e efeitos, não se limita a descrever — interpreta e questiona.`,
+    const abordagemAnalitica = [
+    `Abordagem histórico-crítica: traça a evolução do conceito com datas concretas, questiona a narrativa dominante, propõe leitura alternativa fundamentada.`,
+    `Abordagem teórico-comparativa: confronta pelo menos 2 perspectivas teóricas divergentes, posiciona o argumento, aplica ao contexto do tema com dados específicos.`,
+    `Abordagem empírico-analítica: parte de dados quantitativos verificáveis, analisa causas e efeitos, não se limita a descrever — interpreta e questiona.`,
     `Abordagem crítico-reflexiva: identifica contradições ou tensões no tema, examina limitações das abordagens existentes, propõe síntese fundamentada.`,
-    `Abordagem prospectiva-propositiva: analisa o estado actual com rigor, identifica lacunas e desafios estruturais, formula recomendações concretas para Angola.`,
+    `Abordagem prospectiva-propositiva: analisa o estado actual com rigor, identifica lacunas e desafios estruturais, formula recomendações concretas.`,
   ][(capNum-1) % 5];
 
-  const prompt = `És um professor universitário angolano especialista em ${pArea.label} a escrever o Capítulo ${capNum} de um ${tipo} de nível ${nivel} sobre "${tema}".
+  const prompt = `És um professor universitário especialista em ${pArea.label} a escrever o Capítulo ${capNum} de um ${tipo} de nível ${nivel} sobre "${tema}".
 
 CAPÍTULO: ${capNum}. ${capTit}
 
@@ -813,7 +813,7 @@ ${abordagemAnalitica}
 ESTRUTURA DE CADA SUBTÓPICO (nesta ordem exacta):
 1. Contextualização teórica com pelo menos 1 citação (Autor, Ano)
 2. Desenvolvimento analítico — confrontar perspectivas, não apenas descrever
-3. Dado quantitativo angolano verificável com fonte e ano: ex. "Angola registou X (INE, 2023)"
+3. Dado quantitativo verificável com fonte e ano (ex: "Segundo [Fonte], em [Ano], X registou Y"), 2023)"
 4. Análise crítica do dado — o que significa para o tema?
 5. Síntese argumentativa — qual é a posição do autor?
 
@@ -831,7 +831,7 @@ FORMATAÇÃO OBRIGATÓRIA:
 - NUNCA coloques o subtítulo e o texto na mesma linha
 - Parágrafos separados por linha em branco
 - Sem bullets, sem markdown
-- Português formal angolano
+- Português formal académico
 - ⚠ LIMITE: ${palavras} PALAVRAS — PÁRA ao atingir este limite
 ${p.instrucaoSubtitulos ? '\n' + p.instrucaoSubtitulos : ''}
 ${antiIA(capNum, totalCaps, geoInstrucao)}
@@ -981,27 +981,8 @@ async function doReferencias(p) {
   const pArea    = PERFIL_AREA[areaKey];
   const geoCtxR  = detectarContextoGeo(tema, p.pais);
   const geoRefsInstrucao = geoCtxR === 'angola'
-    ? `Inclui pelo menos ${pNivel.refs_africanos} autores angolanos/africanos e 2 fontes primárias angolanas (INE, BNA, MINSA, legislação angolana).`
-    : geoCtxR === 'global'
-    ? `As referências devem ser internacionais, de revistas académicas reconhecidas na área. NÃO forces referências angolanas ou de qualquer país específico.`
-    : `Inclui referências do contexto "${geoCtxR}" quando disponíveis, combinadas com literatura internacional da área.`;
-
-  const prompt = `Escreve as Referências Bibliográficas para um ${tipo} de nível ${nivel} sobre "${tema}".
-
-REGRAS ABSOLUTAS:
-- Mínimo ${pNivel.refs_min} referências
-- Formato APA 7ª edição estrito
-- Pelo menos ${pNivel.refs_africanos} autores africanos ou angolanos
-- Pelo menos 3 publicações recentes (2019-2024)
-- ${pArea.instrucoes.split('\n')[0]}
-- PROIBIDO referências fora da área temática
-- Ordenadas alfabeticamente pelo apelido
-- Sem numeração, sem bullets — uma referência por parágrafo com linha em branco entre cada
-- ${geoRefsInstrucao}
-- As referências devem ser reais e verificáveis
-
-Escreve APENAS as referências, sem título nem introdução.`;
-
+    ? `O tema é sobre Angola. Inclui fontes relevantes combinadas com literatura internacional.`
+    : `As referências devem ser de revistas académicas internacionais. Evita fontes específicas de qualquer país a menos que o tema o exija.`;
   return { resposta: await callAI([{ role:'user', content:prompt }], { max_tokens:2500, temperature:0.4 }) };
 }
 
@@ -1010,7 +991,7 @@ async function doPlano(p) {
   const tema = (p.tema||'').substring(0,300);
   if (!tema) throw new Error('tema obrigatório');
   const r = await callAI([{ role:'user', content:
-    `Cria um plano académico para um ${p.tipoTrabalho||'TFC'} de nível "${p.nivel||''}" sobre "${tema}" em Angola.
+    `Cria um plano académico para um ${p.tipoTrabalho||'TFC'} de nível "${p.nivel||''}" sobre "${tema}".
 Responde APENAS com JSON válido, sem markdown:
 {"objetivo":"...","hipotese":"...","problema":"...","metodologia":"..."}`
   }], { max_tokens:600, temperature:0.4 });
@@ -1023,7 +1004,7 @@ async function doEstrutura(p) {
   if (!tema) throw new Error('tema obrigatório');
   const pags = Math.min(Math.max(parseInt(p.totalPags)||15, 5), 100);
   const r = await callAI([{ role:'user', content:
-    `Estrutura capítulos para um ${p.tipoTrabalho||'TFC'} de nível "${p.nivel||''}" sobre "${tema}" em Angola. ${pags} páginas.
+    `Estrutura capítulos para um ${p.tipoTrabalho||'TFC'} de nível "${p.nivel||''}" sobre "${tema}". ${pags} páginas.
 ${p.objetivo ? 'Objectivo: '+p.objetivo : ''}
 Responde APENAS com array JSON, sem markdown:
 [{"num":1,"titulo":"...","subs":["Subtópico 1.1","Subtópico 1.2","Subtópico 1.3"]},...]
@@ -1038,10 +1019,10 @@ async function doEditar(p) {
   const subacao = p.subacao||p.acao||'melhorar';
   if (!texto) throw new Error('texto obrigatório');
   const instrucoes = {
-    melhorar:   'Melhora o estilo académico mantendo o conteúdo. Português formal angolano.',
-    expandir:   'Expande com mais detalhe académico (+30%). Português formal angolano.',
-    resumir:    'Resume mantendo as ideias principais (-40%). Português formal angolano.',
-    formalizar: 'Formaliza a linguagem para nível universitário angolano.',
+    melhorar:   'Melhora o estilo académico mantendo o conteúdo. Português formal académico.',
+    expandir:   'Expande com mais detalhe académico (+30%). Português formal académico.',
+    resumir:    'Resume mantendo as ideias principais (-40%). Português formal académico.',
+    formalizar: 'Formaliza a linguagem para nível universitário.',
   };
   const r = await callAI([{ role:'user', content:`${instrucoes[subacao]||instrucoes.melhorar}\n\nTexto:\n${texto}\n\nDevolve apenas o texto editado.` }],
     { max_tokens:4000, temperature:0.5 });

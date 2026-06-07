@@ -6601,8 +6601,20 @@ function saveTema(){
 function selNivel(n){E.cfg.nivel=n;irPara('nivel');}
 function selTurma(t){E.cfg.turma=t;irPara('nivel');}
 function saveDetalhes(){E.cfg.prof=document.getElementById('ip')?.value?.trim()||'';E.cfg.inst=document.getElementById('ii')?.value?.trim()||'';irPara('identidade');}
-function selPags(p){E.cfg.pags=p;irPara('nivel');}
-function selPagsCustom(p){if(p>=5&&p<=200)E.cfg.pags=p;}
+function selPags(p){
+  E.cfg.pags=p;
+  /* Calcular número de capítulos necessários: ~9-10 páginas por capítulo */
+  const capsNecessarios = Math.round(p / 9);
+  E.cfg.numCaps = Math.min(Math.max(capsNecessarios, 4), 14);
+  irPara('nivel');
+}
+function selPagsCustom(p){
+  const val = Math.min(Math.max(parseInt(p)||10, 5), 150);
+  E.cfg.pags = val;
+  /* Mesmo cálculo automático */
+  const capsNecessarios = Math.round(val / 9);
+  E.cfg.numCaps = Math.min(Math.max(capsNecessarios, 4), 14);
+}
 function selCaps(n){E.cfg.numCaps=n;irPara('nivel');}
 function selRef(r){E.cfg.refStyle=r;irPara('identidade');}
 function addMb(){

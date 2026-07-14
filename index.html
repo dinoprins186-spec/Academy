@@ -3301,28 +3301,27 @@ async function aplicarSenha(resultado, {redirect=true}={}){
    Auto-bypass: quando Supabase está conectado, não pede credenciais
 ════════════════════════════════════════════════════════════ */
 
-/* ── Verificação do PIN admin via Supabase Edge Function ──
+/* ── Verificação do PIN admin via Vercel Engine ──
    O PIN nunca existe no frontend. A comparação acontece
-   nos servidores do Supabase (variável de ambiente ADMIN_PIN). */
+   no servidor da Vercel (variável de ambiente ADMIN_PIN). */
 async function _verificarCredenciaisAdmin(email, pin){
   try{
-    const r = await fetch(
-      `${SB_URL}/functions/v1/EXMO-ADMIM`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SB_KEY}`
-        },
-        body: JSON.stringify({ pin: (pin||'').trim() }),
-        signal: AbortSignal.timeout(6000)
-      }
-    );
+    const r = await fetch(ACADEMY_ENGINE_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'verificar_admin',
+        payload: { pin: (pin||'').trim() }
+      }),
+      signal: AbortSignal.timeout(6000)
+    });
     if(!r.ok) return false;
-    const data = await r.json();
-    return data.ok === true;
+    const envelope = await r.json();
+    /* espera-se envelope.data.resposta === { ok: true/false } */
+    return envelope?.data?.resposta?.ok === true;
   }catch(e){
-    console.warn('[ADMIN] Edge Function falhou:', e.message);
+    console.warn('[ADMIN] Vercel engine falhou:', e.message);
     return false;
   }
 }

@@ -701,6 +701,8 @@ export default async function handler(req, res) {
         return res.json(ok(action, await doCoerencia(payload)));
       case 'gerar_capa':
         return res.json(ok(action, { resposta: JSON.stringify({ capa:{ titulo:payload.tema||'', tipo:payload.tipoTrabalho||'' } }) }));
+      case 'verificar_admin':
+        return res.json(ok(action, await doVerificarAdmin(payload)));
       case 'gerar_mea':
       case 'mea_grafico':
       case 'mea_tabela':
@@ -719,6 +721,21 @@ export default async function handler(req, res) {
     console.error('[ENGINE v65]', action, err.message);
     return res.status(500).json({ ok:false, error:'INTERNAL_ERROR', detail:err.message.substring(0,200) });
   }
+}
+
+/* ---------------- VERIFICAR ADMIN ----------------
+   O PIN nunca é exposto ao frontend. A comparação
+   acontece aqui, no servidor, contra a variável de
+   ambiente ADMIN_PIN configurada na Vercel. ---------------- */
+async function doVerificarAdmin(p) {
+  const pinRecebido = String(p?.pin || '').trim();
+  const pinCorreto  = String(process.env.ADMIN_PIN || '').trim();
+  if (!pinCorreto) {
+    console.warn('[ADMIN] ADMIN_PIN não configurado nas variáveis de ambiente da Vercel.');
+    return { resposta: { ok:false } };
+  }
+  const autorizado = pinRecebido.length > 0 && pinRecebido === pinCorreto;
+  return { resposta: { ok: autorizado } };
 }
 
 /* ---------------- CHAT ---------------- */

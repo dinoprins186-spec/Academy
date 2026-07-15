@@ -8042,6 +8042,74 @@ async function montarDocumentoPDFAsync(secs, meta, onProgress){
    Substitui a versão síncrona para PDF.
    Mostra barra de progresso durante geração.
 ════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════
+   v77 — EXPORTAÇÃO PDF REAL
+   Substitui a dependência do "Guardar como PDF" do
+   navegador (que falha muito em Android/PWA e acaba
+   por descarregar .html em vez de .pdf) por um .pdf
+   binário verdadeiro, gerado no telemóvel com
+   jsPDF + html2canvas (carregados via CDN sob pedido).
+════════════════════════════════════════════════ */
+async function _carregarLibsPDF(){
+  if(window.jspdf && window.html2canvas) return true;
+  const carregar = src => new Promise((res,rej)=>{
+    const s=document.createElement('script');
+    s.src=src; s.onload=res; s.onerror=()=>rej(new Error('CDN_FALHOU:'+src));
+    document.head.appendChild(s);
+  });
+  try{
+    if(!window.html2canvas) await carregar('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+    if(!window.jspdf) await carregar('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    return !!(window.jspdf && window.html2canvas);
+  }catch(e){
+    console.warn('[PDF real] Falha a carregar bibliotecas — sem internet?', e);
+    return false;
+  }
+}
+
+async function gerarPDFReal(paginas, meta, onProgress){
+  const ok = await _carregarLibsPDF();
+  if(!ok) throw new Error('LIBS_PDF_INDISPONIVEIS');
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit:'mm', format:'a4', compress:true });
+
+  /* Palco invisível fora do ecrã — usa a mesma folha de estilo do preview */
+  const palco = document.createElement('div');
+  palco.style.cssText = 'position:fixed; left:-99999px; top:0; width:210mm; z-index:-1;';
+  const styleTag = document.createElement('style');
+  styleTag.textContent = cssPDF();
+  palco.appendChild(styleTag);
+  document.body.appendChild(palco);
+
+  try{
+    for(let i=0; i<paginas.length; i++){
+      palco.insertAdjacentHTML('beforeend', paginas[i]);
+      const todasPag = palco.querySelectorAll('.pag');
+      const pagEl = todasPag[todasPag.length-1];
+      if(!pagEl){ if(onProgress) onProgress(Math.round(((i+1)/paginas.length)*100)); continue; }
+
+      const canvas = await window.html2canvas(pagEl, {
+        scale: 2, useCORS: true, backgroundColor: '#ffffff',
+        windowWidth: pagEl.scrollWidth,
+      });
+      const img = canvas.toDataURL('image/jpeg', 0.92);
+
+      if(i>0) doc.addPage();
+      doc.addImage(img, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+
+      pagEl.remove(); /* liberta memória — não acumular todas as páginas no DOM */
+      if(onProgress) onProgress(Math.round(((i+1)/paginas.length)*100));
+    }
+  }finally{
+    palco.remove();
+  }
+
+  const nome=(meta.titulo||'ACADEMY').substring(0,50)
+    .replace(/[^\w\s\u00C0-\u024F]/g,'').trim().replace(/\s+/g,'_')||'ACADEMY';
+  doc.save(nome+'_ACADEMY.pdf');
+}
+
 async function _expPDFExecutarAsync(secs, meta){
   /* Barra de progresso */
   const toast = _aeToastProgresso('A preparar PDF académico…', 0);
@@ -8061,27 +8129,28 @@ async function _expPDFExecutarAsync(secs, meta){
     const totalPgs = paginas.length;
     const titulo   = meta.titulo||'ACADEMY';
 
-    /* v54 fix C: download directo primeiro, depois tenta preview */
-    const nomeF=(nome||'ACADEMY')+'_ACADEMY.html';
-    const blob = new Blob([html], {type:'text/html;charset=utf-8'});
-    const url  = URL.createObjectURL(blob);
-
-    const a=document.createElement('a');a.href=url;a.download=nomeF;
-    a.style.display='none';
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    _aeToastProgressoUpdate(toast, 40, 'A converter páginas para PDF real…');
 
     try{
-      const win=window.open(url,'_blank');
-      if(win){
-        mostrarToast('✓ PDF aberto — toca em ⬇ Guardar PDF no topo.');
-        setTimeout(()=>URL.revokeObjectURL(url),30000);
-      } else {
-        setTimeout(()=>URL.revokeObjectURL(url),8000);
-        _mostrarToastPDFInstrucao(nome||'ACADEMY');
-      }
-    }catch(e){
+      await gerarPDFReal(paginas, meta, pct=>{
+        _aeToastProgressoUpdate(toast, 40 + Math.round(pct*0.6), `A converter página a página… ${pct}%`);
+      });
+      mostrarToast('✓ PDF descarregado — vai aos Downloads.');
+    }catch(errPdf){
+      /* Só cai aqui se as libs de PDF não carregarem (ex: sem internet) —
+         nesse caso, fallback honesto: HTML pronto a imprimir, deixado bem claro. */
+      console.warn('[PDF real] Fallback para HTML:', errPdf);
+      const nome=(meta.titulo||'ACADEMY').substring(0,50)
+        .replace(/[^\w\s\u00C0-\u024F]/g,'').trim().replace(/\s+/g,'_')||'ACADEMY';
+      const html = _aeHtmlFinalPDF(paginas, paginas.length, meta.titulo||'ACADEMY', secs, meta);
+      const nomeF=nome+'_IMPRIMIR_ACADEMY.html';
+      const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+      const url  = URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download=nomeF;
+      a.style.display='none';
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
       setTimeout(()=>URL.revokeObjectURL(url),8000);
-      _mostrarToastPDFInstrucao(nome||'ACADEMY');
+      mostrarToast('⚠ Sem internet para gerar PDF — descarreguei HTML para imprimires manualmente.');
     }
   }finally{
     setTimeout(()=>_aeRemoverToast(toast), 1500);
@@ -8255,8 +8324,18 @@ function _expPDFExecutar(secs, meta){
 }
 
 /* Versão síncrona — v54 fix C: download directo sem window.open */
-function _expPDFExecutarSync(secs, meta){
+async function _expPDFExecutarSync(secs, meta){
   mostrarToast('⏳ A preparar PDF…');
+
+  try{
+    const {paginas} = await montarDocumentoPDFAsync(secs, meta);
+    await gerarPDFReal(paginas, meta);
+    mostrarToast('✓ PDF descarregado — vai aos Downloads.');
+    return;
+  }catch(errPdf){
+    console.warn('[PDF real - sync] Fallback para HTML:', errPdf);
+  }
+
   const html=gerarJanelaPDF(secs,meta);
   const nome=(meta.titulo||'ACADEMY').substring(0,50)
     .replace(/[^\w\s\u00C0-\u024F]/g,'').trim().replace(/\s+/g,'_')||'ACADEMY';
@@ -8266,15 +8345,15 @@ function _expPDFExecutarSync(secs, meta){
 
   /* Download directo sempre — funciona em Android sem popup bloqueado */
   const a=document.createElement('a');
-  a.href=url; a.download=nome+'_ACADEMY.html';
+  a.href=url; a.download=nome+'_IMPRIMIR_ACADEMY.html';
   a.style.display='none';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  mostrarToast('⚠ Sem internet para gerar PDF — descarreguei HTML para imprimires manualmente.');
 
   /* Tentar preview em nova aba como bónus */
   try{
     const win=window.open(url,'_blank');
     if(win){
-      mostrarToast('✓ PDF aberto — toca em ⬇ Guardar PDF no topo.');
       setTimeout(()=>URL.revokeObjectURL(url),30000);
       return;
     }
@@ -8380,11 +8459,12 @@ function astParaBlocos(ast, secMeta) {
     return blocos;
   }
 
-  /* Capítulo normal: secções → h3 + parágrafos */
+  /* Capítulo normal: secções → h2 (sub-heading) + parágrafos
+     v78: corrigido — estava 'h3' (sub-sub-heading), um nível a mais do que devia */
   for (const sec of ast.sections) {
     /* Subtítulo */
     blocos.push({
-      tipo    : 'h3',
+      tipo    : 'h2',
       texto   : `${sec.section_id || ''} ${sec.title}`.trim(),
       /* v66: IDs hierárquicos */
       _cid    : `c${ast.chapter_id}`,
@@ -9045,6 +9125,32 @@ function layoutCalcularBlocos(blocos){
     alturaUsada+=h;
   }
   if(paginaActual.length>0) pages.push(paginaActual);
+
+  /* v78: REDE DE SEGURANÇA — intervalo absoluto de páginas.
+     Pedido de N páginas → aceite entre N-2 e N+2 no essencial, mas para
+     pedidos pequenos NUNCA recusar: o tecto sobe até 15 em vez de bloquear
+     ou devolver um documento vazio. Corta o excesso por página inteira
+     (nunca a meio de um bloco), preservando sempre a última página com
+     conteúdo (nunca corta títulos de capítulo isolados no fim). */
+  try{
+    const alvoTotal = parseInt(E?.cfg?.pags) || 15;
+    const PAGINAS_FIXAS_CLIENTE = 3; /* capa + TOC + contracapa, à parte destas páginas de conteúdo */
+    const alvoConteudo = Math.max(alvoTotal - PAGINAS_FIXAS_CLIENTE, 1);
+    const TOLERANCIA = 2;
+    const tectoAbsoluto = Math.max(alvoConteudo + TOLERANCIA, 15 - PAGINAS_FIXAS_CLIENTE);
+
+    if(pages.length > tectoAbsoluto){
+      /* Corta páginas inteiras a mais a partir do fim, nunca deixando
+         menos de 1 página, e nunca cortando a meio de um capítulo se
+         a página anterior ainda tiver esse mesmo título em aberto —
+         aqui cortamos por página cheia, que já é uma unidade atómica. */
+      pages.length = Math.max(tectoAbsoluto, 1);
+    }
+  }catch(_eTolerancia){
+    /* Nunca deixar esta rede de segurança impedir a geração do documento */
+    console.warn('[Paginação v78] Falha na rede de segurança de páginas — a seguir sem corte', _eTolerancia);
+  }
+
   return pages;
 }
 

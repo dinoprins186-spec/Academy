@@ -281,6 +281,61 @@ function truncar(texto, max) {
    Recebe AST parcial/inválido e devolve AST válido garantido.
    Nunca falha. Nunca retorna texto livre.
 ================================================================ */
+/* v76: Detecta se um AST de capítulo de CONTEÚDO (não referências) saiu
+   formatado como lista bibliográfica — bug observado onde o modelo
+   confunde o formato e devolve "Autor, J. (Ano). Título. Editora."
+   em vez de texto discursivo. Se ≥50% dos parágrafos parecem entradas
+   de referência, o capítulo é considerado inválido. */
+function pareceListaReferencias(ast) {
+  if (!ast || !Array.isArray(ast.sections)) return false;
+  const paragrafos = ast.sections.flatMap(s => s.paragraphs || []);
+  if (paragrafos.length === 0) return false;
+  const padraoRef = /^[A-ZÀ-Ü][\wçãáéíóúâêôõü\s]{0,40},?\s*[A-Z]?\.?\s*\(\d{4}\)\./;
+  const comShapeDeRef = paragrafos.filter(p => padraoRef.test(String(p).trim())).length;
+  return (comShapeDeRef / paragrafos.length) >= 0.5;
+}
+
+/* v76: Corta um AST de capítulo para caber no orçamento de palavras.
+   Percorre secção a secção, parágrafo a parágrafo, e pára assim que
+   atingir o limite (+12% de margem) — nunca corta um parágrafo a meio,
+   só remove parágrafos/secções inteiras a partir do ponto de corte.
+   Garante ≥1 parágrafo na primeira secção mesmo que já ultrapasse o
+   limite sozinho, para nunca devolver um capítulo vazio. */
+function truncarASTParaPalavras(ast, limitePalavras) {
+  const margem = Math.round(limitePalavras * 1.12);
+  const secsOriginais = ast.sections || [];
+  let acumulado = 0;
+  let cortou = false;
+  const sections = [];
+
+  for (const sec of secsOriginais) {
+    if (acumulado >= margem) { cortou = true; break; }
+
+    const paragraphs = [];
+    for (const par of (sec.paragraphs || [])) {
+      const texto = String(par);
+      const wc = texto.trim().split(/\s+/).filter(Boolean).length;
+
+      if (acumulado + wc > margem && paragraphs.length > 0) { cortou = true; break; }
+
+      paragraphs.push(texto);
+      acumulado += wc;
+
+      if (acumulado >= margem) break;
+    }
+
+    if (paragraphs.length > 0) sections.push({ ...sec, paragraphs });
+    if (paragraphs.length < (sec.paragraphs || []).length) cortou = true;
+  }
+
+  if (sections.length === 0 && secsOriginais.length > 0) {
+    /* nunca devolver capítulo vazio — mantém a primeira secção completa */
+    sections.push(secsOriginais[0]);
+  }
+
+  return { ...ast, sections, _truncado: cortou };
+}
+
 function repararAST(raw, capNum, capTit, subs) {
   /* Tentar extrair o que existe */
   let ast = null;
@@ -701,8 +756,6 @@ export default async function handler(req, res) {
         return res.json(ok(action, await doCoerencia(payload)));
       case 'gerar_capa':
         return res.json(ok(action, { resposta: JSON.stringify({ capa:{ titulo:payload.tema||'', tipo:payload.tipoTrabalho||'' } }) }));
-      case 'verificar_admin':
-        return res.json(ok(action, await doVerificarAdmin(payload)));
       case 'gerar_mea':
       case 'mea_grafico':
       case 'mea_tabela':
@@ -721,21 +774,6 @@ export default async function handler(req, res) {
     console.error('[ENGINE v65]', action, err.message);
     return res.status(500).json({ ok:false, error:'INTERNAL_ERROR', detail:err.message.substring(0,200) });
   }
-}
-
-/* ---------------- VERIFICAR ADMIN ----------------
-   O PIN nunca é exposto ao frontend. A comparação
-   acontece aqui, no servidor, contra a variável de
-   ambiente ADMIN_PIN configurada na Vercel. ---------------- */
-async function doVerificarAdmin(p) {
-  const pinRecebido = String(p?.pin || '').trim();
-  const pinCorreto  = String(process.env.ADMIN_PIN || '').trim();
-  if (!pinCorreto) {
-    console.warn('[ADMIN] ADMIN_PIN não configurado nas variáveis de ambiente da Vercel.');
-    return { resposta: { ok:false } };
-  }
-  const autorizado = pinRecebido.length > 0 && pinRecebido === pinCorreto;
-  return { resposta: { ok: autorizado } };
 }
 
 /* ---------------- CHAT ---------------- */
@@ -771,7 +809,10 @@ async function doCapitulo(p) {
      Deixa margem para pré/pós-textuais opcionais
      Limite max aumentado para 4000 para documentos grandes */
   const PAGINAS_FIXAS = 3; /* capa + TOC + contracapa */
-  const PALAVRAS_POR_PAGINA = 370;
+  const PALAVRAS_POR_PAGINA = 280; /* v76: alinhado com a capacidade real da página A4
+     do motor de paginação (~300 palavras/pág brutas, menos margem para
+     títulos/subtítulos de secção que também ocupam espaço mas não contam
+     como "palavras" aqui) */
   const paginasConteudo = Math.max(totalPags - PAGINAS_FIXAS, 1);
   const palavrasCalc = Math.round((paginasConteudo * PALAVRAS_POR_PAGINA) / totalCaps);
   const palavras = Math.min(Math.max(parseInt(p.palavrasPorCap)||palavrasCalc, 200), 4000);
@@ -849,7 +890,7 @@ FORMATAÇÃO OBRIGATÓRIA:
 - Parágrafos separados por linha em branco
 - Sem bullets, sem markdown
 - Português formal académico
-- ⚠ LIMITE: ${palavras} PALAVRAS — PÁRA ao atingir este limite
+- ⚠ LIMITE: ${palavras} PALAVRAS no total do capítulo — distribui ~${Math.round(palavras/(capSubs.length||3))} palavras por subtópico e PÁRA ao atingir o limite
 ${p.instrucaoSubtitulos ? '\n' + p.instrucaoSubtitulos : ''}
 ${antiIA(capNum, totalCaps, geoInstrucao)}
 
@@ -889,9 +930,14 @@ Mínimo 3 parágrafos por secção.`;
   let astRaw = null;
   try { astRaw = extrairJSON(r); } catch (_) {}
 
-  /* Tentativa 2 — prompt simplificado se AST inválido */
-  if (!validarAST(astRaw)) {
-    console.warn(`[AST v73] T1 falhou — retry simplificado — cap ${capNum}`);
+  /* Tentativa 2 — prompt simplificado se AST inválido OU se saiu como lista de referências
+     (bug real observado: cap. de conteúdo normal a sair 100% formatado como bibliografia) */
+  if (!validarAST(astRaw) || pareceListaReferencias(astRaw)) {
+    if (!validarAST(astRaw)) {
+      console.warn(`[AST v73] T1 falhou — retry simplificado — cap ${capNum}`);
+    } else {
+      console.warn(`[AST v76] Cap ${capNum} saiu como lista de referências — retry — "${capTit}"`);
+    }
     retryCount++;
     const promptSimples = `Escreve capítulo ${capNum} "${capTit}" sobre "${tema}".
 Subtópicos: ${subs}
@@ -903,9 +949,19 @@ Português formal. Mínimo 3 parágrafos/secção.`;
   }
 
   /* AST Repair Engine — garante AST válido mesmo se ambas as tentativas falharem */
-  const ast = repararAST(astRaw || r, capNum, capTit, capSubs);
+  let ast = repararAST(astRaw || r, capNum, capTit, capSubs);
   if (ast._repaired) {
     console.warn(`[AST v72] Reparado — cap ${capNum} — razão: ${ast._repair_reason}`);
+  }
+
+  /* v76: CORTE DE SEGURANÇA — garante que o capítulo nunca ultrapassa o
+     orçamento de páginas pedido, independentemente do modelo ter ignorado
+     o limite de palavras do prompt. Corta por parágrafo inteiro (nunca a
+     meio de uma frase), com 12% de margem. Sem isto, o utilizador podia
+     pedir 6 páginas e receber 16-18. */
+  ast = truncarASTParaPalavras(ast, palavras);
+  if (ast._truncado) {
+    console.warn(`[AST v76] Cap ${capNum} cortado — excedia o orçamento de ${palavras} palavras`);
   }
 
   /* Document Health + Readiness */

@@ -281,61 +281,6 @@ function truncar(texto, max) {
    Recebe AST parcial/inválido e devolve AST válido garantido.
    Nunca falha. Nunca retorna texto livre.
 ================================================================ */
-/* v76: Detecta se um AST de capítulo de CONTEÚDO (não referências) saiu
-   formatado como lista bibliográfica — bug observado onde o modelo
-   confunde o formato e devolve "Autor, J. (Ano). Título. Editora."
-   em vez de texto discursivo. Se ≥50% dos parágrafos parecem entradas
-   de referência, o capítulo é considerado inválido. */
-function pareceListaReferencias(ast) {
-  if (!ast || !Array.isArray(ast.sections)) return false;
-  const paragrafos = ast.sections.flatMap(s => s.paragraphs || []);
-  if (paragrafos.length === 0) return false;
-  const padraoRef = /^[A-ZÀ-Ü][\wçãáéíóúâêôõü\s]{0,40},?\s*[A-Z]?\.?\s*\(\d{4}\)\./;
-  const comShapeDeRef = paragrafos.filter(p => padraoRef.test(String(p).trim())).length;
-  return (comShapeDeRef / paragrafos.length) >= 0.5;
-}
-
-/* v76: Corta um AST de capítulo para caber no orçamento de palavras.
-   Percorre secção a secção, parágrafo a parágrafo, e pára assim que
-   atingir o limite (+12% de margem) — nunca corta um parágrafo a meio,
-   só remove parágrafos/secções inteiras a partir do ponto de corte.
-   Garante ≥1 parágrafo na primeira secção mesmo que já ultrapasse o
-   limite sozinho, para nunca devolver um capítulo vazio. */
-function truncarASTParaPalavras(ast, limitePalavras) {
-  const margem = Math.round(limitePalavras * 1.12);
-  const secsOriginais = ast.sections || [];
-  let acumulado = 0;
-  let cortou = false;
-  const sections = [];
-
-  for (const sec of secsOriginais) {
-    if (acumulado >= margem) { cortou = true; break; }
-
-    const paragraphs = [];
-    for (const par of (sec.paragraphs || [])) {
-      const texto = String(par);
-      const wc = texto.trim().split(/\s+/).filter(Boolean).length;
-
-      if (acumulado + wc > margem && paragraphs.length > 0) { cortou = true; break; }
-
-      paragraphs.push(texto);
-      acumulado += wc;
-
-      if (acumulado >= margem) break;
-    }
-
-    if (paragraphs.length > 0) sections.push({ ...sec, paragraphs });
-    if (paragraphs.length < (sec.paragraphs || []).length) cortou = true;
-  }
-
-  if (sections.length === 0 && secsOriginais.length > 0) {
-    /* nunca devolver capítulo vazio — mantém a primeira secção completa */
-    sections.push(secsOriginais[0]);
-  }
-
-  return { ...ast, sections, _truncado: cortou };
-}
-
 function repararAST(raw, capNum, capTit, subs) {
   /* Tentar extrair o que existe */
   let ast = null;
@@ -826,10 +771,7 @@ async function doCapitulo(p) {
      Deixa margem para pré/pós-textuais opcionais
      Limite max aumentado para 4000 para documentos grandes */
   const PAGINAS_FIXAS = 3; /* capa + TOC + contracapa */
-  const PALAVRAS_POR_PAGINA = 280; /* v76: alinhado com a capacidade real da página A4
-     do motor de paginação (~300 palavras/pág brutas, menos margem para
-     títulos/subtítulos de secção que também ocupam espaço mas não contam
-     como "palavras" aqui) */
+  const PALAVRAS_POR_PAGINA = 370;
   const paginasConteudo = Math.max(totalPags - PAGINAS_FIXAS, 1);
   const palavrasCalc = Math.round((paginasConteudo * PALAVRAS_POR_PAGINA) / totalCaps);
   const palavras = Math.min(Math.max(parseInt(p.palavrasPorCap)||palavrasCalc, 200), 4000);
@@ -907,7 +849,7 @@ FORMATAÇÃO OBRIGATÓRIA:
 - Parágrafos separados por linha em branco
 - Sem bullets, sem markdown
 - Português formal académico
-- ⚠ LIMITE: ${palavras} PALAVRAS no total do capítulo — distribui ~${Math.round(palavras/(capSubs.length||3))} palavras por subtópico e PÁRA ao atingir o limite
+- ⚠ LIMITE: ${palavras} PALAVRAS — PÁRA ao atingir este limite
 ${p.instrucaoSubtitulos ? '\n' + p.instrucaoSubtitulos : ''}
 ${antiIA(capNum, totalCaps, geoInstrucao)}
 
@@ -947,14 +889,9 @@ Mínimo 3 parágrafos por secção.`;
   let astRaw = null;
   try { astRaw = extrairJSON(r); } catch (_) {}
 
-  /* Tentativa 2 — prompt simplificado se AST inválido OU se saiu como lista de referências
-     (bug real observado: cap. de conteúdo normal a sair 100% formatado como bibliografia) */
-  if (!validarAST(astRaw) || pareceListaReferencias(astRaw)) {
-    if (!validarAST(astRaw)) {
-      console.warn(`[AST v73] T1 falhou — retry simplificado — cap ${capNum}`);
-    } else {
-      console.warn(`[AST v76] Cap ${capNum} saiu como lista de referências — retry — "${capTit}"`);
-    }
+  /* Tentativa 2 — prompt simplificado se AST inválido */
+  if (!validarAST(astRaw)) {
+    console.warn(`[AST v73] T1 falhou — retry simplificado — cap ${capNum}`);
     retryCount++;
     const promptSimples = `Escreve capítulo ${capNum} "${capTit}" sobre "${tema}".
 Subtópicos: ${subs}
@@ -966,18 +903,9 @@ Português formal. Mínimo 3 parágrafos/secção.`;
   }
 
   /* AST Repair Engine — garante AST válido mesmo se ambas as tentativas falharem */
-  let ast = repararAST(astRaw || r, capNum, capTit, capSubs);
+  const ast = repararAST(astRaw || r, capNum, capTit, capSubs);
   if (ast._repaired) {
     console.warn(`[AST v72] Reparado — cap ${capNum} — razão: ${ast._repair_reason}`);
-  }
-
-  /* v76: CORTE DE SEGURANÇA — garante que o capítulo nunca ultrapassa o
-     orçamento de páginas pedido, independentemente do modelo ter ignorado
-     o limite de palavras do prompt. Corta por parágrafo inteiro (nunca a
-     meio de uma frase), com 12% de margem. */
-  ast = truncarASTParaPalavras(ast, palavras);
-  if (ast._truncado) {
-    console.warn(`[AST v76] Cap ${capNum} cortado — excedia o orçamento de ${palavras} palavras`);
   }
 
   /* Document Health + Readiness */
@@ -1060,44 +988,6 @@ Português formal. Mínimo 3 parágrafos/secção.`;
 }
 
 /* ---------------- REFERÊNCIAS (v65: por área e nível) ---------------- */
-/* v76: Sieve/peneira de referências — valida cada entrada individualmente.
-   Uma referência válida tem forma "Autor(es) (Ano). Título. Editora/Revista."
-   com ano plausível e comprimento mínimo. Remove tudo o que não cumprir,
-   e remove duplicados (mesmo título normalizado). */
-function peneirarReferencias(texto) {
-  if (!texto) return { validas: [], invalidas: 0, texto: '' };
-
-  const anoAtual = new Date().getFullYear();
-  const blocos = texto.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
-  const padraoRef = /^[A-ZÀ-Ü][\wçãáéíóúâêôõüÇÃÁÉÍÓÚÂÊÔÕÜ.,&\s]{2,80}\(\d{4}\)\.\s*.{10,}/;
-
-  const vistos = new Set();
-  const validas = [];
-  let invalidas = 0;
-
-  for (const bloco of blocos) {
-    const b = bloco.replace(/\s+/g, ' ').trim();
-    const matchAno = b.match(/\((\d{4})\)/);
-    const ano = matchAno ? parseInt(matchAno[1]) : null;
-
-    const formaOk    = padraoRef.test(b);
-    const anoOk       = ano && ano >= 1950 && ano <= anoAtual;
-    const tamanhoOk   = b.length >= 40 && b.length <= 400;
-
-    if (!formaOk || !anoOk || !tamanhoOk) { invalidas++; continue; }
-
-    const apósAno = b.split(/\(\d{4}\)\.\s*/)[1] || b;
-    const chave = apósAno.toLowerCase().replace(/[^\wà-ü]/g, '').substring(0, 60);
-    if (vistos.has(chave)) { invalidas++; continue; }
-    vistos.add(chave);
-
-    validas.push(b);
-  }
-
-  return { validas, invalidas, texto: validas.join('\n\n') };
-}
-
-/* ---------------- REFERÊNCIAS (v76: prompt corrigido + peneira rigorosa) ---------------- */
 async function doReferencias(p) {
   const tema  = (p.tema||'').substring(0,300);
   const tipo  = (p.tipoTrabalho||'Trabalho Académico').substring(0,100);
@@ -1110,48 +1000,7 @@ async function doReferencias(p) {
   const geoRefsInstrucao = geoCtxR === 'angola'
     ? `O tema é sobre Angola. Inclui fontes relevantes combinadas com literatura internacional.`
     : `As referências devem ser de revistas académicas internacionais. Evita fontes específicas de qualquer país a menos que o tema o exija.`;
-
-  const totalPags = parseInt(p.totalPags) || 15;
-  const numRefs   = Math.min(18, Math.max(10, Math.round(totalPags * 0.6)));
-  const MIN_VALIDAS = Math.max(6, Math.round(numRefs * 0.6));
-
-  const montarPrompt = (reforcar) => `És um bibliotecário académico especialista em ${pArea.label}, a preparar a lista de referências bibliográficas de um ${tipo} de nível ${nivel} sobre "${tema}".
-
-TAREFA: gera exactamente ${numRefs} referências bibliográficas reais e plausíveis, em formato APA.
-
-${geoRefsInstrucao}
-${pNivel.citacoes}
-
-FORMATO OBRIGATÓRIO — uma referência por bloco, cada bloco separado por LINHA EM BRANCO:
-Apelido, I. (Ano). Título da obra em itálico-equivalente. Editora ou Revista, volume(número), páginas.
-
-REGRAS RÍGIDAS:
-- CADA entrada TEM de conter o padrão "(Ano)." logo a seguir ao(s) autor(es) — sem excepção
-- Ano entre 1950 e ${new Date().getFullYear()}
-- NUNCA repitas o mesmo autor+título duas vezes
-- Mistura livros, artigos de revista e, se fizer sentido para o tema, fontes institucionais
-- Sem bullets, sem numeração, sem markdown — só o texto de cada referência
-- Português formal, normas APA
-${reforcar ? '\nATENÇÃO: a tentativa anterior teve referências incompletas ou mal formatadas. Confirma que TODAS têm autor, ano entre parêntesis, título e editora/revista.' : ''}
-
-Escreve as ${numRefs} referências agora.`;
-
-  let bruta = await callAI([{ role:'user', content: montarPrompt(false) }], { max_tokens:2500, temperature:0.4 });
-  let peneira = peneirarReferencias(bruta);
-
-  if (peneira.validas.length < MIN_VALIDAS) {
-    console.warn(`[Referências v76] ${peneira.validas.length}/${numRefs} válidas — retry reforçado`);
-    const bruta2 = await callAI([{ role:'user', content: montarPrompt(true) }], { max_tokens:2500, temperature:0.35 });
-    const peneira2 = peneirarReferencias(bruta2);
-    peneira = peneira2.validas.length > peneira.validas.length ? peneira2 : peneira;
-  }
-
-  return {
-    resposta: peneira.texto,
-    referencias_validas: peneira.validas.length,
-    referencias_pedidas: numRefs,
-    referencias_rejeitadas: peneira.invalidas,
-  };
+  return { resposta: await callAI([{ role:'user', content:prompt }], { max_tokens:2500, temperature:0.4 }) };
 }
 
 /* ---------------- PLANO ACADÉMICO ---------------- */
